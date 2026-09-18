@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { createRequire } from "node:module";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { registerInspect } from "./commands/inspect.js";
 import { registerQuality } from "./commands/quality.js";
 import { registerRun } from "./commands/run.js";
@@ -28,6 +30,15 @@ export async function main(argv = process.argv): Promise<void> {
   }
 }
 
-if (process.argv[1] && /[\\/]cli[\\/]index\.(js|ts)$/.test(process.argv[1])) {
+function isMainModule(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   void main();
 }
