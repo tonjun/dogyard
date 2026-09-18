@@ -39,11 +39,12 @@ function addCommonRunFlags(cmd: Command): Command {
 function buildRunner(flags: CommonRunFlags): { runner: CommandRunner; recorder?: RecordingRunner } {
   if (flags.mocks && flags.record) fail("Use only one of --mocks and --record");
   if (flags.mocks) return { runner: new MockRunner(loadMocksFile(path.resolve(flags.mocks))) };
+  const streamStderr = !flags.quiet;
   if (flags.record) {
-    const recorder = new RecordingRunner(new RealRunner());
+    const recorder = new RecordingRunner(new RealRunner({ streamStderr }));
     return { runner: recorder, recorder };
   }
-  return { runner: new RealRunner() };
+  return { runner: new RealRunner({ streamStderr }) };
 }
 
 function commonOptions(flags: CommonRunFlags & { traceFile?: boolean }): Partial<RunOptions> {

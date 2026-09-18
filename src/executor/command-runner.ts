@@ -28,8 +28,15 @@ export interface CommandRunner {
   run(req: CommandRequest): Promise<CommandResult>;
 }
 
+export interface RealRunnerOptions {
+  /** Stream each command's stderr to the parent process's stderr as it arrives, in addition to capturing it. */
+  streamStderr?: boolean;
+}
+
 /** Runs real subprocesses (no shell). Nonzero exit, timeout and spawn failures become FlowErrors. */
 export class RealRunner implements CommandRunner {
+  constructor(private readonly opts: RealRunnerOptions = {}) {}
+
   run(req: CommandRequest): Promise<CommandResult> {
     const start = Date.now();
     return new Promise<CommandResult>((resolve, reject) => {
@@ -63,7 +70,10 @@ export class RealRunner implements CommandRunner {
       const fail = (err: FlowError) => { if (settled) return; settled = true; cleanup(); reject(err); };
 
       child.stdout?.setEncoding("utf8").on("data", (d: string) => { stdout += d; });
-      child.stderr?.setEncoding("utf8").on("data", (d: string) => { stderr += d; });
+      child.stderr?.setEncoding("utf8").on("data", (d: string) => {
+        stderr += d;
+        if (this.opts.streamStderr) process.stderr.write(prefixLines(d, req.step, req.itemIndex));
+      });
       child.on("error", (err: NodeJS.ErrnoException) => {
         fail(new FlowError("spawn_error", `Failed to start "${cmd}": ${err.message}`, { step: req.step, details: { code: err.code, argv: req.argv }, cause: err }));
       });
@@ -91,6 +101,15 @@ export class RealRunner implements CommandRunner {
 
 function tail(s: string, max = 4000): string {
   return s.length > max ? `…${s.slice(-max)}` : s;
+}
+
+/** Prefix each line of a stderr chunk with its step name, so concurrent steps stay attributable. */
+function prefixLines(chunk: string, step: string, itemIndex: number | undefined): string {
+  const label = itemIndex !== undefined ? `${step}[${itemIndex}]` : step;
+  const trailingNewline = chunk.endsWith("\n");
+  const lines = chunk.replace(/\n$/, "").split("\n");
+  const out = lines.map((l) => `[${label}] ${l}`).join("\n");
+  return trailingNewline ? `${out}\n` : out;
 }
 
 /** Serves canned results keyed by step name (and item index for map sub-steps). */
