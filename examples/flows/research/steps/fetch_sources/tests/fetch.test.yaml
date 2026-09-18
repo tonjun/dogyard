@@ -1,0 +1,39 @@
+# Runs only the `fetch_sources` step against a supplied context.
+tests:
+  - name: limit defaults to 3
+    context:
+      trigger: { query: "cats" }
+    mock: { output: { results: [] } }
+    expect:
+      input: { q: "cats", limit: 3 }
+      argv: ["node", "../../bin/search-cli.cjs", "--json"]
+      output: { results: [] }
+
+  - name: explicit limit is passed through
+    context:
+      trigger: { query: "cats", limit: 2 }
+    mock: { output: { results: [] } }
+    expect:
+      input: { q: "cats", limit: 2 }
+
+  - name: the real search tool returns `limit` results
+    context:
+      trigger: { query: "dogs", limit: 2 }
+    real: true
+    expect:
+      output_jsonata: "$count(output.results) = 2 and output.results[0].id = 'dogs-1'"
+
+  - name: a failing search is retried 3 times then fails
+    context:
+      trigger: { query: "cats" }
+    mock: { stdout: "", stderr: "503", exit_code: 1 }
+    expect:
+      error_type: nonzero_exit
+      attempts: 3
+
+  - name: reuses the flow-level mocks file
+    context:
+      trigger: { query: "cats" }
+    mocks_file: ../../../mocks/good.yaml
+    expect:
+      output_jsonata: "$count(output.results) = 2"

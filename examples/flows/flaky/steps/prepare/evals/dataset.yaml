@@ -1,0 +1,4 @@
+examples:
+  - id: items
+    context: {}
+    expected: { items: [1, 2, 3, 4] }

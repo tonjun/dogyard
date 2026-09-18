@@ -1,0 +1,7 @@
+examples:
+  - id: three
+    context: { steps: { summarize_each: [{ summary: "a" }, { summary: "b" }, { summary: "c" }] } }
+    expected: { published: 3 }
+  - id: none
+    context: { steps: { summarize_each: [] } }
+    expected: { published: 0 }

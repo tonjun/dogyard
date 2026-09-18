@@ -1,0 +1,15 @@
+tests:
+  - name: the query is templated into argv
+    context:
+      trigger: { query: "hello" }
+    mock: { stdout: "5", exit_code: 0 }
+    expect:
+      argv: ["node", "-e", "process.stdout.write(String(process.argv[1].length))", "hello"]
+      output: 5
+
+  - name: the real command returns the query length as JSON
+    context:
+      trigger: { query: "hello world" }
+    real: true
+    expect:
+      output: 11

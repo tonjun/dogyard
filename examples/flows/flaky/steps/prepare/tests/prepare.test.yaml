@@ -1,0 +1,6 @@
+tests:
+  - name: emits four items
+    context: {}
+    real: true
+    expect:
+      output: { items: [1, 2, 3, 4] }

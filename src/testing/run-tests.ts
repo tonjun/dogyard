@@ -12,6 +12,8 @@ import { executedPath, type RunTrace } from "../trace.js";
 export interface TestOutcome {
   file: string;
   name: string;
+  /** Set for step-level tests (steps/<step>/tests). */
+  step?: string;
   passed: boolean;
   failures: string[];
   trace?: RunTrace;
@@ -121,7 +123,8 @@ export async function runTestCase(loaded: LoadedFlow, tc: TestCase, file = "<inl
 export function formatTestResults(res: TestSuiteResult, flowDir: string): string {
   const lines: string[] = [];
   for (const o of res.outcomes) {
-    lines.push(`${o.passed ? "PASS" : "FAIL"}  ${o.name}  (${path.relative(flowDir, o.file)}, ${o.durationMs}ms)`);
+    const label = o.step ? `${o.step} › ${o.name}` : o.name;
+    lines.push(`${o.passed ? "PASS" : "FAIL"}  ${label}  (${path.relative(flowDir, o.file)}, ${o.durationMs}ms)`);
     for (const f of o.failures) lines.push(`      ${f.replace(/\n/g, "\n      ")}`);
   }
   lines.push("", `${res.passed} passed, ${res.failed} failed, ${res.outcomes.length} total`);

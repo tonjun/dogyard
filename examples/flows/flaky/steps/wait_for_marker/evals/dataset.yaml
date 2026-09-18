@@ -1,0 +1,3 @@
+examples:
+  - id: marker
+    context: { trigger: { marker: /tmp/marker } }

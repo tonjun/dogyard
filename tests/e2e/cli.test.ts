@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync, cpSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -129,13 +129,60 @@ describe("run", () => {
 });
 
 describe("test / eval", () => {
-  it("runs fixture tests for both example flows", async () => {
+  it("runs fixture tests and step tests for the example flows", async () => {
     const h = await cli(["test", hello]);
     expect(h.code, h.stdout).toBe(0);
-    expect(h.stdout).toMatch(/4 passed, 0 failed/);
+    expect(h.stdout).toMatch(/8 passed, 0 failed/);
+    expect(h.stdout).toMatch(/PASS {2}shout › the real command uppercases the text/);
     const r = await cli(["test", research, "--json"]);
     expect(r.code, r.stdout).toBe(0);
-    expect(json(r.stdout).every((o: { passed: boolean }) => o.passed)).toBe(true);
+    const outcomes = json(r.stdout) as Array<{ passed: boolean; step?: string }>;
+    expect(outcomes.every((o) => o.passed)).toBe(true);
+    expect(new Set(outcomes.map((o) => o.step ?? "<flow>"))).toEqual(new Set(["<flow>", "fetch_sources", "summarize_each", "score_quality", "publish"]));
+    const f = await cli(["test", flaky]);
+    expect(f.code, f.stdout).toBe(0);
+    expect(f.stdout).toMatch(/6 passed, 0 failed/);
+  });
+  it("filters step tests with --step and skips them with --no-steps", async () => {
+    const only = await cli(["test", hello, "--step", "count", "--json"]);
+    expect(only.code, only.stdout).toBe(0);
+    expect(json(only.stdout).map((o: { step: string }) => o.step)).toEqual(["count", "count"]);
+    const none = await cli(["test", hello, "--no-steps"]);
+    expect(none.code).toBe(0);
+    expect(none.stdout).toMatch(/4 passed, 0 failed/);
+    const missing = await cli(["test", hello, "--step", "nope"]);
+    expect(missing.code).toBe(0);
+    expect(missing.stderr).toMatch(/No tests found in .*steps\/nope\/tests/);
+    expect((await cli(["test", hello, "--step", "count", "--no-steps"])).code).toBe(1);
+  });
+  it("reports a step folder that does not match a step", async () => {
+    const dir = path.join(work, "hello-badstep");
+    cpSync(hello, dir, { recursive: true });
+    writeFileSync(path.join(dir, "steps/count/tests/fail.test.yaml"), "name: wrong argv\ncontext: { trigger: { query: hi } }\nmock: { output: 2 }\nexpect:\n  argv: [node]\n  attempts: 2\n");
+    mkdirSync(path.join(dir, "steps/route/tests"), { recursive: true });
+    writeFileSync(path.join(dir, "steps/route/tests/a.test.yaml"), "name: choice\nreal: true\n");
+    const r = await cli(["test", dir, "--step", "route"]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toMatch(/FAIL {2}route › choice/);
+    expect(r.stdout).toMatch(/choice step/);
+    const c = await cli(["test", dir, "--step", "count", "-k", "wrong"]);
+    expect(c.code).toBe(1);
+    expect(c.stdout).toMatch(/argv mismatch/);
+    expect(c.stdout).toMatch(/attempts: expected 2, got 1/);
+  });
+  it("evaluates a single step with --step and writes the report under the step folder", async () => {
+    const r = await cli(["eval", research, "--step", "fetch_sources", "--json"]);
+    expect(r.code, r.stderr).toBe(0);
+    const j = json(r.stdout);
+    expect(j.step).toBe("fetch_sources");
+    expect(j.pass_rate).toBe(1);
+    expect(j.examples[0].result.argv).toEqual(["node", "../../bin/search-cli.cjs", "--json"]);
+    expect(r.stderr).toMatch(/Report: .*steps\/fetch_sources\/evals\/reports\//);
+    expect(readdirSync(path.join(research, "steps/fetch_sources/evals/reports"))).toHaveLength(1);
+    const m = await cli(["eval", flaky, "--step", "wait_for_marker", "--no-report"]);
+    expect(m.code, m.stdout).toBe(0);
+    expect(m.stdout).toMatch(/Eval: flaky@0.1.0 step wait_for_marker/);
+    expect((await cli(["eval", hello, "--step", "route", "--no-report"])).code).toBe(1);
   });
   it("fails a test with a readable diff", async () => {
     const dir = path.join(work, "hello-bad");
@@ -172,10 +219,32 @@ describe("test / eval", () => {
     expect(r.code, r.stderr).toBe(0);
     const dir = path.join(work, "my-flow");
     expect((await cli(["validate", dir])).code).toBe(0);
-    expect((await cli(["test", dir])).code).toBe(0);
+    const t = await cli(["test", dir]);
+    expect(t.code, t.stdout).toBe(0);
+    expect(t.stdout).toMatch(/4 passed, 0 failed/);
+    expect(existsSync(path.join(dir, "steps/shout/evals/dataset.yaml"))).toBe(true);
+    const e = await cli(["eval", dir, "--step", "shout", "--no-report"]);
+    expect(e.code, e.stdout).toBe(0);
     const run = await cli(["run", dir, "--query", "hello", "-q", "--no-trace-file"]);
     expect(json(run.stdout)).toEqual({ kind: "long", value: "HELLO" });
     expect((await cli(["new", "my-flow", "--dir", work])).code).toBe(1);
+  });
+  it("scaffolds a step folder for an existing command step with new-step", async () => {
+    const dir = path.join(work, "research-newstep");
+    cpSync(research, dir, { recursive: true });
+    rmSync(path.join(dir, "steps"), { recursive: true, force: true });
+    const r = await cli(["new-step", dir, "summarize_each"]);
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stderr).toMatch(/steps\/summarize_each\/tests\/basic.test.yaml/);
+    const yaml = readFileSync(path.join(dir, "steps/summarize_each/tests/basic.test.yaml"), "utf8");
+    expect(yaml).toMatch(/fetch_sources: null/);
+    expect(yaml).toMatch(/item: null/);
+    expect((await cli(["new-step", dir, "summarize_each"])).code).toBe(1);
+    expect((await cli(["new-step", dir, "summarize_each", "--force"])).code).toBe(0);
+    const bad = await cli(["new-step", dir, "route_on_score"]);
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toMatch(/choice step/);
+    expect((await cli(["new-step", dir, "missing"])).code).toBe(1);
   });
 });
 

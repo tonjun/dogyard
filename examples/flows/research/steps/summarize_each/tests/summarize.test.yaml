@@ -1,0 +1,35 @@
+# `summarize_each` is a map step: each case runs its command sub-step for one `item`.
+tests:
+  - name: the item body is sent as text
+    context:
+      item: { id: a, title: A, body: "alpha alpha" }
+      index: 0
+    mock: { output: { summary: "two words" } }
+    expect:
+      input: { text: "alpha alpha" }
+      argv: ["node", "../../bin/llm-run.cjs", "--prompt-file", "prompts/summarize.md"]
+      output: { summary: "two words" }
+
+  - name: the real fake LLM counts words and reads the prompt file
+    context:
+      item: { body: "alpha alpha" }
+    real: true
+    expect:
+      output_jsonata: "output.words = 2 and $contains(output.summary, 'Summarize')"
+
+  - name: a refused summary is caught and falls back to an empty summary
+    context:
+      item: { body: "please fail" }
+    real: true
+    expect:
+      status: caught
+      error_type: nonzero_exit
+      output: { summary: "" }
+
+  - name: picks the item's entry from the flow mocks file
+    context:
+      item: { body: "beta beta beta" }
+      index: 1
+    mocks_file: ../../../mocks/good.yaml
+    expect:
+      output: { summary: "three words" }

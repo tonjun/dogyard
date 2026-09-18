@@ -1,0 +1,15 @@
+tests:
+  - name: input is built from the trigger
+    context:
+      trigger: { query: "hello" }
+    mock: { output: { shouted: "HELLO" } }
+    expect:
+      input: { text: "hello" }
+      output: { shouted: "HELLO" }
+
+  - name: the real command uppercases the text
+    context:
+      trigger: { query: "hello world" }
+    real: true
+    expect:
+      output: { shouted: "HELLO WORLD" }

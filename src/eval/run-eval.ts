@@ -40,25 +40,28 @@ export function evalsDir(flowDir: string): string {
   return path.join(flowDir, "evals");
 }
 
-export function loadEvalConfig(flowDir: string, file?: string): { file: string; config: EvalConfig } {
-  const f = file ? path.resolve(file) : ["eval.yaml", "eval.yml"].map((n) => path.join(evalsDir(flowDir), n)).find(existsSync);
-  if (!f || !existsSync(f)) throw new LoadError(`No evals/eval.yaml found in ${flowDir}`);
+export function loadEvalConfig(flowDir: string, file?: string, dir = evalsDir(flowDir)): { file: string; config: EvalConfig } {
+  const f = file ? path.resolve(file) : ["eval.yaml", "eval.yml"].map((n) => path.join(dir, n)).find(existsSync);
+  if (!f || !existsSync(f)) throw new LoadError(`No eval.yaml found in ${dir}`);
   const parsed = evalConfigSchema.safeParse(readYamlFile(f));
   if (!parsed.success) throw new LoadError(`Invalid eval config ${f}`, formatZodIssues(parsed.error), f);
   return { file: f, config: parsed.data };
 }
 
-export function loadDataset(file: string): EvalExample[] {
+/** Read a dataset file as YAML or JSONL without validating its shape. */
+export function readDatasetRaw(file: string): unknown {
   if (!existsSync(file)) throw new LoadError(`Dataset not found: ${file}`);
-  let raw: unknown;
   if (file.endsWith(".jsonl")) {
-    raw = readFileSync(file, "utf8")
+    return readFileSync(file, "utf8")
       .split(/\r?\n/)
       .filter((l) => l.trim())
       .map((l) => JSON.parse(l));
-  } else {
-    raw = readYamlFile(file);
   }
+  return readYamlFile(file);
+}
+
+export function loadDataset(file: string): EvalExample[] {
+  const raw = readDatasetRaw(file);
   const parsed = evalDatasetSchema.safeParse(raw);
   if (!parsed.success) throw new LoadError(`Invalid dataset ${file}`, formatZodIssues(parsed.error), file);
   return Array.isArray(parsed.data) ? parsed.data : parsed.data.examples;
@@ -81,17 +84,7 @@ export async function runEval(loaded: LoadedFlow, opts: RunEvalOptions = {}): Pr
   let examples = loadDataset(datasetFile);
   if (opts.limit) examples = examples.slice(0, opts.limit);
 
-  let runnerFactory: () => CommandRunner;
-  if (opts.mocksFile) {
-    const mocks = resolveMocks({ mocks_file: opts.mocksFile }, process.cwd());
-    runnerFactory = () => new MockRunner(mocks);
-  } else if (config.mocks || config.mocks_file) {
-    const mocks = resolveMocks(config, cfgDir);
-    runnerFactory = () => new MockRunner(mocks);
-  } else {
-    const real = new RealRunner();
-    runnerFactory = () => real;
-  }
+  const runnerFactory = evalRunnerFactory(config, cfgDir, opts.mocksFile);
 
   const started_at = new Date().toISOString();
   const limit = pLimit(opts.concurrency ?? config.concurrency);
@@ -105,6 +98,31 @@ export async function runEval(loaded: LoadedFlow, opts: RunEvalOptions = {}): Pr
     ),
   );
 
+  return {
+    flow: { name: loaded.flow.name, version: loaded.flow.version, dir: loaded.dir },
+    started_at,
+    ended_at: new Date().toISOString(),
+    ...summarize(config, results),
+    examples: results,
+  };
+}
+
+/** Choose the runner for an eval: explicit mocks file > config mocks > real execution. */
+export function evalRunnerFactory(config: EvalConfig, cfgDir: string, mocksFile?: string): () => CommandRunner {
+  if (mocksFile) {
+    const mocks = resolveMocks({ mocks_file: mocksFile }, process.cwd());
+    return () => new MockRunner(mocks);
+  }
+  if (config.mocks || config.mocks_file) {
+    const mocks = resolveMocks(config, cfgDir);
+    return () => new MockRunner(mocks);
+  }
+  const real = new RealRunner();
+  return () => real;
+}
+
+/** Aggregate per-example results into totals and a per-grader breakdown. */
+export function summarize(config: EvalConfig, results: Array<{ grades: GradeResult[]; score: number; passed: boolean }>): Pick<EvalReport, "total" | "passed" | "failed" | "pass_rate" | "mean_score" | "graders"> {
   const graders = config.graders.map((g, gi) => {
     const gs = results.map((r) => r.grades[gi]).filter((x): x is GradeResult => !!x);
     const passed = gs.filter((x) => x.passed).length;
@@ -119,16 +137,12 @@ export async function runEval(loaded: LoadedFlow, opts: RunEvalOptions = {}): Pr
   });
   const passed = results.filter((r) => r.passed).length;
   return {
-    flow: { name: loaded.flow.name, version: loaded.flow.version, dir: loaded.dir },
-    started_at,
-    ended_at: new Date().toISOString(),
     total: results.length,
     passed,
     failed: results.length - passed,
     pass_rate: results.length ? passed / results.length : 0,
     mean_score: results.length ? results.reduce((a, r) => a + r.score, 0) / results.length : 0,
     graders,
-    examples: results,
   };
 }
 

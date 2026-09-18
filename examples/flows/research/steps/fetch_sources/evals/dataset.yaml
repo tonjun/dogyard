@@ -1,0 +1,10 @@
+examples:
+  - id: default-limit
+    context: { trigger: { query: "cats" } }
+    expected: { count: 3 }
+  - id: limit-1
+    context: { trigger: { query: "dogs", limit: 1 } }
+    expected: { count: 1 }
+  - id: limit-5
+    context: { trigger: { query: "birds", limit: 5 } }
+    expected: { count: 5 }

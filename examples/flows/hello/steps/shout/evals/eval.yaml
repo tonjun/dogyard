@@ -1,0 +1,7 @@
+dataset: dataset.yaml
+graders:
+  - type: exact
+    name: exact-output
+  - type: jsonata
+    name: shouted-is-uppercase
+    expression: "output.shouted = $uppercase(trigger.query)"

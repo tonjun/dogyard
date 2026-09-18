@@ -1,0 +1,7 @@
+examples:
+  - id: one
+    context: { item: 1 }
+    expected: { done: true, item: 1 }
+  - id: object
+    context: { item: { nested: true } }
+    expected: { done: true, item: { nested: true } }

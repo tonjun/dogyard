@@ -1,0 +1,8 @@
+# The real command depends on a file on disk, so this eval replays a mock.
+dataset: dataset.yaml
+mocks:
+  wait_for_marker: { output: { ok: true, marker: /tmp/marker } }
+graders:
+  - type: jsonata
+    name: ok
+    expression: "output.ok = true and step.argv[2] = trigger.marker"

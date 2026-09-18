@@ -1,0 +1,19 @@
+examples:
+  - id: all-good
+    context:
+      steps:
+        fetch_sources: { results: [{ id: a }, { id: b }] }
+        summarize_each: [{ summary: "x" }, { summary: "y" }]
+    expected: { score: 1 }
+  - id: half-good
+    context:
+      steps:
+        fetch_sources: { results: [{ id: a }, { id: b }] }
+        summarize_each: [{ summary: "x" }, { summary: "" }]
+    expected: { score: 0.5 }
+  - id: no-sources
+    context:
+      steps:
+        fetch_sources: { results: [] }
+        summarize_each: []
+    expected: { score: 0 }

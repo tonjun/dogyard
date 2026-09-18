@@ -3,13 +3,17 @@ import { parseDuration } from "../duration.js";
 import { evaluateExpression } from "../expr.js";
 import { RealRunner } from "../executor/command-runner.js";
 import type { Grader } from "../schema/eval.js";
+import type { StepRunResult } from "../executor/run-step.js";
 import type { RunTrace } from "../trace.js";
 
 export interface GradeInput {
   output: unknown;
   expected: unknown;
   trigger: unknown;
-  trace: RunTrace;
+  /** Flow evals: the full run trace. */
+  trace?: RunTrace;
+  /** Step evals: the isolated step result. */
+  step?: StepRunResult;
   flowDir: string;
 }
 
@@ -34,7 +38,7 @@ export async function grade(g: Grader, index: number, input: GradeInput): Promis
         return { grader: name, score: ok ? 1 : 0, passed: ok, ...(ok ? {} : { message: `expected ${JSON.stringify(input.expected)}, got ${JSON.stringify(input.output)}` }) };
       }
       case "jsonata": {
-        const v = await evaluateExpression(g.expression, { output: input.output, expected: input.expected, trigger: input.trigger, trace: input.trace });
+        const v = await evaluateExpression(g.expression, { output: input.output, expected: input.expected, trigger: input.trigger, trace: input.trace, step: input.step });
         if (typeof v === "number") {
           const score = Math.max(0, Math.min(1, v));
           return { grader: name, score, passed: score >= 1 };

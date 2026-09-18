@@ -71,6 +71,15 @@ executor (for real, or mocked) and scores results with graders from
 `eval/graders.ts` (`exact`, `jsonata`, `command`); `eval/report.ts` writes
 the JSON report to `evals/reports/`.
 
+**Per-step tests and evals:** `executor/run-step.ts` (`runStep`) runs a
+single command step (or a map's command sub-step for one `item`) against a
+supplied context, reusing `executeCommandStep`, `withRetry` and the `catch`
+logic. `testing/run-step-tests.ts` discovers `steps/<step>/tests/*.test.yaml`
+(schema in `schema/step-test.ts`; each case needs exactly one of `mock`,
+`mocks_file`, `real: true`) and `eval/run-step-eval.ts` runs
+`steps/<step>/evals/` datasets (`schema/step-eval.ts`) through it. The CLI
+surfaces these as `test --step/--no-steps`, `eval --step`, and `new-step`.
+
 **Schemas:** `src/schema/*.ts` (Zod) define `flow.yaml`, `workflows.yaml`
 (project defaults), `*.test.yaml`, and `eval.yaml`/dataset shapes; these are
 the source of truth for what's valid in each YAML file, not the README.
@@ -90,6 +99,9 @@ flows/<name>/
   evals/eval.yaml
   evals/dataset.yaml (or .jsonl)
   evals/reports/
+  steps/<step>/tests/*.test.yaml     per-step tests (folder name = step name)
+  steps/<step>/evals/eval.yaml       per-step eval config + dataset.yaml
+  steps/<step>/evals/reports/
   .runs/<run_id>/trace.json
 ```
 
@@ -107,3 +119,5 @@ with its "tools" implemented as small Node scripts in `examples/bin/`.
   the process cwd.
 - Every `command` step needs a mock when run under `test`/`--mocks`; a
   missing mock is a hard failure by design (keeps tests deterministic).
+  Step tests follow the same principle: a case must say `mock`, `mocks_file`
+  or `real: true` explicitly.

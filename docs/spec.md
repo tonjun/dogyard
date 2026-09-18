@@ -148,6 +148,7 @@ Notes on the sample:
 
 ### 3.2 Folder-per-flow convention
 - Each flow is self-contained: its definition, its config (default timeouts, retry policy), its tests, and its eval dataset all live together.
+- Each command step may additionally own a `steps/<step>/` folder inside the flow, holding that step's own tests and evals. The folder name is the step name; `flow.yaml` remains the single definition of the step.
 - A flow must be runnable/testable/evaluable by pointing the CLI at its folder alone — no hard dependency on a shared/global engine state, though flows may optionally opt into shared project-level defaults.
 
 ### 3.3 CLI command step (core primitive)
@@ -169,10 +170,12 @@ Core capabilities the CLI needs to expose (exact command names/flags TBD in plan
 ### 3.5 Testing
 - Fixture-based tests per flow: given an input and mocked command output (keyed by step), assert on the output and/or on which path through the flow was taken (important for validating branching logic without depending on real command execution).
 - A way to record real command output from an actual run and save it as reusable mocks for tests.
+- Step-level tests (`steps/<step>/tests/`): run one command step in isolation against a supplied context (trigger, upstream outputs, map item), asserting on its resolved input/argv, output, error type and attempt count. Each case declares whether the command is mocked or run for real. Executed by the same step handlers the run loop uses.
 
 ### 3.6 Evaluation
 - Dataset of (input, expected) pairs per flow, run through the flow (typically with real command execution), scored via configurable graders (exact/structural match, JSONata-expressed assertions, and optionally other scoring strategies).
 - Aggregate report: pass rate, per-grader breakdown, and access to failing examples' full traces.
+- Step-level evals (`steps/<step>/evals/`): the same config and graders applied to one step, with dataset examples supplying a context instead of a trigger; graders see the step result in place of the run trace.
 
 ### 3.7 Observability
 - Every run produces a structured, inspectable trace (steps visited, inputs/outputs/errors per step) — used for debugging, for test/eval assertions, and reusable later by the Phase 2 UI.

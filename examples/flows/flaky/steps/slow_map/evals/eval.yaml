@@ -1,0 +1,5 @@
+dataset: dataset.yaml
+graders:
+  - type: jsonata
+    name: echoes-item
+    expression: "output.done = true and output.item = step.input"

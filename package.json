@@ -1,6 +1,6 @@
 {
   "name": "dogyard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first, CLI-first workflow engine: YAML DAG flows of CLI command steps with JSONata data flow.",
   "type": "module",
   "bin": {

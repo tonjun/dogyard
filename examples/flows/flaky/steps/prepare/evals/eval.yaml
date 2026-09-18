@@ -1,0 +1,4 @@
+dataset: dataset.yaml
+graders:
+  - type: exact
+    name: exact-output

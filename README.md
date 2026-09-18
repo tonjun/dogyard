@@ -41,8 +41,8 @@ Node scripts in `examples/bin/`.
 | **Trigger** | The JSON object a run starts with. Available in expressions as `trigger`. |
 | **Execution context** | `trigger` plus `steps.<name>.output` / `steps.<name>.status` for every step so far. Step outputs are never mutated. |
 | **Run** | One execution of a flow. Produces an output JSON and a trace at `<flow>/.runs/<run_id>/trace.json`. |
-| **Test** | Deterministic fixture: trigger + mocked command output, assertions on output and path. |
-| **Eval** | Dataset of (trigger, expected) pairs run through the flow (usually for real) and scored by graders. |
+| **Test** | Deterministic fixture: trigger + mocked command output, assertions on output and path. Step tests (`steps/<step>/tests/`) run one command step against a supplied context. |
+| **Eval** | Dataset of (trigger, expected) pairs run through the flow (usually for real) and scored by graders. Step evals (`steps/<step>/evals/`) do the same for one step. |
 
 ## Flow definition (`flow.yaml`)
 
@@ -161,6 +161,11 @@ flows/<name>/
   evals/eval.yaml        graders + dataset reference
   evals/dataset.yaml     (or .jsonl) examples
   evals/reports/         written by `eval`
+  steps/<step>/          one folder per command step (or map whose sub-step is a command)
+    tests/*.test.yaml    step tests: run only this step against a context
+    evals/eval.yaml      step eval config (same shape as evals/eval.yaml)
+    evals/dataset.yaml   (or .jsonl) { id?, context, expected? } examples
+    evals/reports/       written by `eval --step <step>`
   .runs/<run_id>/trace.json
 workflows.yaml           optional project-level defaults (discovered by walking up)
 ```
@@ -172,13 +177,14 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 
 | Command | Purpose |
 |---|---|
-| `new <name> [--dir flows]` | Scaffold a flow folder with a sample test and eval. |
+| `new <name> [--dir flows]` | Scaffold a flow folder with a sample test, eval and `steps/shout/` step folder. |
+| `new-step <flow> <step> [--force]` | Scaffold `steps/<step>/` (starter test + eval) for an existing command step. |
 | `validate <flow>` | Structural + reference + DAG + expression-syntax checks. `--json` for machine output. |
 | `run <flow> (--query <text> \| --input <json> \| --input-file <path>)` | Run once. `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `-q`. |
 | `resume <flow> <run_id> [--force]` | Continue a failed or interrupted run from its trace. Also `run --resume <run_id>`. |
 | `runs <flow>` / `runs show <flow> <run_id>` | List persisted runs / print one trace. |
-| `test <flow> [-k filter]` | Run `tests/*.test.yaml` with mocked commands. |
-| `eval <flow> [--dataset] [--mocks] [--concurrency] [--limit] [--report] [--json]` | Score a dataset and write a report. |
+| `test <flow> [-k filter] [--step <name>] [--no-steps]` | Run `tests/*.test.yaml` with mocked commands plus every `steps/<step>/tests/*.test.yaml`. `--step` runs one step's tests only; `--no-steps` skips step tests. |
+| `eval <flow> [--step <name>] [--dataset] [--mocks] [--concurrency] [--limit] [--report] [--json]` | Score a dataset and write a report. With `--step`, evaluate that step alone using `steps/<name>/evals/`. |
 | `list [root]` | Find flows under a directory. |
 | `describe <flow>` | Print metadata, config and steps. |
 | `graph <flow> --format json\|dot\|mermaid` | Export the DAG. `json` is the canonical form for a future UI. |
@@ -210,6 +216,42 @@ A mock is either `{ output: <json> }` or `{ stdout, stderr, exit_code }`. Every
 command step needs a mock in tests; a missing one fails the run so tests stay
 deterministic. Create mocks from a real run with `run ... --record mocks/x.yaml`.
 
+## Step tests (`steps/<step>/tests/*.test.yaml`)
+
+Flow tests always run the whole DAG. A step test runs **one command step** (or
+the command sub-step of a map, once, for one `item`) against a context you
+supply, so you can pin down its input expression, argv templating, output
+parsing, retry/catch behaviour, and the real tool behind it. The folder name
+must be a step name in `flow.yaml`; `test <flow>` runs flow tests and step tests
+together.
+
+```yaml
+tests:
+  - name: limit defaults to 3
+    context:                              # what the step's expressions see
+      trigger: { query: "cats" }          # default {}
+      steps:                              # upstream outputs (shorthand for { status: succeeded, output })
+        fetch_sources: { results: [] }
+      item: { body: "alpha alpha" }       # required when <step> is a map
+      index: 0                            # selects the entry of an array mock
+    mock: { output: { results: [] } }     # exactly one of: mock | mocks_file | real: true
+    # mocks_file: ../../../mocks/good.yaml   # uses mocks[<step>] from a flow mocks file
+    # real: true                             # spawn the real command (cwd = flow folder)
+    expect:
+      status: succeeded                   # succeeded | caught | failed (default: failed when error_type set)
+      input: { q: "cats", limit: 3 }      # the resolved step input
+      argv: ["node", "../../bin/search-cli.cjs", "--json"]
+      output: { results: [] }
+      output_jsonata: "$count(output.results) = 0"   # over { output, input, argv, context, step }
+      error_type: nonzero_exit
+      attempts: 3                         # attempts made (checks the retry policy)
+```
+
+Every case must say how the command runs (`mock`, `mocks_file` or `real: true`),
+so step tests stay deterministic unless you opt in to the real tool. Only
+`command` steps (and maps of command steps) get step folders; `choice`
+steps cannot run in isolation.
+
 ## Evals (`evals/eval.yaml` + dataset)
 
 ```yaml
@@ -224,6 +266,26 @@ graders:
 
 Reports (`evals/reports/<timestamp>.json`) include the pass rate, per-grader
 breakdown and the full trace of every example.
+
+### Step evals (`steps/<step>/evals/`)
+
+`eval <flow> --step <name>` evaluates one step with the same config format;
+only the dataset differs: examples carry a `context` (as in step tests) instead
+of a `trigger`. Commands run for real unless `mocks`/`mocks_file` (keyed by
+step name) are set. Graders see `trigger` (= `context.trigger`) and `step`
+(the step result: `output`, `input`, `argv`, `attempts`, `exit_code`,
+`stderr`, `status`) instead of `trace`. Reports go to
+`steps/<name>/evals/reports/`.
+
+```yaml
+# steps/fetch_sources/evals/eval.yaml
+dataset: dataset.yaml
+graders:
+  - { type: jsonata, name: result-count, expression: "$count(output.results) = expected.count" }
+# steps/fetch_sources/evals/dataset.yaml
+examples:
+  - { id: default-limit, context: { trigger: { query: cats } }, expected: { count: 3 } }
+```
 
 ## Traces and resume
 
@@ -257,5 +319,6 @@ summarize:
 
 Everything the CLI does is exported from `src/index.ts`: `loadFlow`,
 `validateFlow`, `buildGraph`, `exportGraph`, `runFlow`, `prepareResume`,
-`runTests`, `runEval`, and the runner classes (`RealRunner`, `MockRunner`,
-`RecordingRunner`).
+`runStep`, `runTests`, `runStepTests`, `runEval`, `runStepEval`,
+`scaffoldFlow`, `scaffoldStep`, and the runner classes (`RealRunner`,
+`MockRunner`, `RecordingRunner`).

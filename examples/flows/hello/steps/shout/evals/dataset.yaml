@@ -1,0 +1,7 @@
+examples:
+  - id: hello
+    context: { trigger: { query: "hello" } }
+    expected: { shouted: HELLO }
+  - id: mixed-case
+    context: { trigger: { query: "DogYard" } }
+    expected: { shouted: DOGYARD }

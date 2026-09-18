@@ -1,0 +1,10 @@
+examples:
+  - id: two-words
+    context: { item: { body: "alpha alpha" } }
+    expected: { words: 2 }
+  - id: five-words
+    context: { item: { body: "one two three four five" } }
+    expected: { words: 5 }
+  - id: empty
+    context: { item: { body: "" } }
+    expected: { words: 0 }

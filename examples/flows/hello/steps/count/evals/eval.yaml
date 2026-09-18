@@ -1,0 +1,7 @@
+dataset: dataset.yaml
+graders:
+  - type: exact
+    name: exact-output
+  - type: jsonata
+    name: equals-query-length
+    expression: "output = $length(trigger.query)"

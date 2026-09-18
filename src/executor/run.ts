@@ -39,7 +39,7 @@ export interface RunResult {
 }
 
 const DEFAULT_MAX_CONCURRENCY = 8;
-const DEFAULT_RETRY: RetryPolicy = { max_attempts: 1, backoff: "0s", on: ["command_failure"] };
+export const DEFAULT_RETRY: RetryPolicy = { max_attempts: 1, backoff: "0s", on: ["command_failure"] };
 
 class RunEnded extends Error {
   constructor() {

@@ -1,0 +1,8 @@
+dataset: dataset.yaml
+graders:
+  - type: jsonata
+    name: result-count
+    expression: "$count(output.results) = expected.count"
+  - type: jsonata
+    name: ids-are-prefixed-with-query
+    expression: "$count(output.results[$substringBefore(id, '-') = $$.trigger.query]) = expected.count"

@@ -1,0 +1,5 @@
+dataset: dataset.yaml
+graders:
+  - type: jsonata
+    name: word-count
+    expression: "output.words = expected.words"

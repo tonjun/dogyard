@@ -1,0 +1,17 @@
+tests:
+  - name: publishes the list of summaries
+    context:
+      steps:
+        summarize_each: [{ summary: "a" }, { summary: "b" }]
+    mock: { output: { published: 2 } }
+    expect:
+      input: [{ summary: "a" }, { summary: "b" }]
+      output: { published: 2 }
+
+  - name: the real publisher counts the items
+    context:
+      steps:
+        summarize_each: [{ summary: "a" }, { summary: "b" }, { summary: "c" }]
+    real: true
+    expect:
+      output: { published: 3 }

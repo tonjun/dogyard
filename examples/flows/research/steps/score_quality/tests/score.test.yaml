@@ -1,0 +1,19 @@
+tests:
+  - name: input joins the source count with the summaries
+    context:
+      steps:
+        fetch_sources: { results: [{ id: a }, { id: b }] }
+        summarize_each: [{ summary: "x" }, { summary: "" }]
+    mock: { output: { score: 0.5 } }
+    expect:
+      input: { sourceCount: 2, summaries: [{ summary: "x" }, { summary: "" }] }
+      output: { score: 0.5 }
+
+  - name: the real scorer scores the share of non-empty summaries
+    context:
+      steps:
+        fetch_sources: { results: [{ id: a }, { id: b }, { id: c }, { id: d }] }
+        summarize_each: [{ summary: "x" }, { summary: "" }, { summary: "y" }, { summary: "z" }]
+    real: true
+    expect:
+      output: { score: 0.75, good: 3, sourceCount: 4 }

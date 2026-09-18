@@ -1,0 +1,7 @@
+examples:
+  - id: short
+    context: { trigger: { query: "hi" } }
+    expected: 2
+  - id: long
+    context: { trigger: { query: "hello world" } }
+    expected: 11

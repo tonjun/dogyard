@@ -1,0 +1,26 @@
+# `slow_map` is a map step; each case runs the sub-step for one `item`.
+tests:
+  - name: the delay defaults to 0 and the item goes to stdin
+    context:
+      trigger: {}
+      item: 1
+    mock: { output: { done: true, item: 1 } }
+    expect:
+      argv: ["node", "../../bin/slow-echo.cjs", "0"]
+      input: 1
+
+  - name: the delay comes from the trigger
+    context:
+      trigger: { delay_ms: 25 }
+      item: 2
+    mock: { output: { done: true, item: 2 } }
+    expect:
+      argv: ["node", "../../bin/slow-echo.cjs", "25"]
+
+  - name: the real command echoes the item back
+    context:
+      trigger: {}
+      item: 3
+    real: true
+    expect:
+      output: { done: true, item: 3 }
