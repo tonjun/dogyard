@@ -1,0 +1,10 @@
+examples:
+  - id: hello
+    trigger: { query: "hello" }
+    expected: { kind: long, value: HELLO, length: 5 }
+  - id: hi
+    trigger: { query: "hi" }
+    expected: { kind: short, value: HI, length: 2 }
+  - id: workflow
+    trigger: { query: "workflow" }
+    expected: { kind: long, value: WORKFLOW, length: 8 }

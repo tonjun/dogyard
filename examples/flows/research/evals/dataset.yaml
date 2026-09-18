@@ -1,0 +1,7 @@
+examples:
+  - id: clean-query
+    trigger: { query: "cats", limit: 3 }
+    expected: { route: publish }
+  - id: one-bad-source
+    trigger: { query: "fail", limit: 2 }
+    expected: { route: flag_for_review }

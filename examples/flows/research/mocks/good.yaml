@@ -1,0 +1,11 @@
+mocks:
+  fetch_sources:
+    output:
+      results:
+        - { id: a, title: A, body: "alpha alpha" }
+        - { id: b, title: B, body: "beta beta beta" }
+  summarize_each:
+    - { output: { summary: "two words" } }
+    - { output: { summary: "three words" } }
+  score_quality: { output: { score: 1 } }
+  publish: { output: { published: 2 } }

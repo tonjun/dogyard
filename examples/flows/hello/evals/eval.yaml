@@ -1,0 +1,11 @@
+dataset: dataset.yaml
+pass_threshold: 1
+graders:
+  - type: exact
+    name: exact-output
+  - type: jsonata
+    name: uppercased
+    expression: "output.value = $uppercase(trigger.query)"
+  - type: command
+    name: length-check
+    command: ["node", "-e", "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const {output,trigger}=JSON.parse(d);process.exit(output.length===trigger.query.length?0:1)})"]

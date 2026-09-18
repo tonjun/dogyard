@@ -1,0 +1,33 @@
+tests:
+  - name: long queries take the long branch
+    trigger: { query: "hello" }
+    mocks:
+      shout: { output: { shouted: "HELLO" } }
+      count: { stdout: "5", exit_code: 0 }
+    expect:
+      output: { kind: long, value: HELLO, length: 5 }
+      path: [shout, count, route, long]
+      skipped: [short]
+
+  - name: short queries take the short branch
+    trigger: { query: "hi" }
+    mocks:
+      shout: { output: { shouted: "HI" } }
+      count: { output: 2 }
+    expect:
+      output: { kind: short, value: HI, length: 2 }
+      output_jsonata: "output.kind = 'short' and output.length < 3"
+
+  - name: a failing command fails the run with nonzero_exit
+    trigger: { query: "x" }
+    mocks:
+      shout: { stdout: "", stderr: "nope", exit_code: 1 }
+      count: { output: 1 }
+    expect:
+      error_type: command_failure
+
+  - name: trigger without query is rejected
+    trigger: { q: "x" }
+    expect:
+      status: failed
+      error_type: schema_validation

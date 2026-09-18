@@ -1,0 +1,72 @@
+# Mirrors the sample in docs/spec.md §3.1.1, using fake tools from examples/bin.
+schema_version: 1
+name: research-and-summarize
+version: 0.1.0
+description: Search, summarize each hit in parallel, score, then publish or flag.
+
+config:
+  default_timeout: 30s
+  default_retry:
+    max_attempts: 2
+    backoff: 200ms
+
+trigger_schema:
+  type: object
+  required: [query]
+  properties:
+    query: { type: string }
+    limit: { type: integer, minimum: 1, maximum: 5 }
+
+steps:
+  fetch_sources:
+    type: command
+    command: ["node", "../../bin/search-cli.cjs", "--json"]
+    input: '{ "q": trigger.query, "limit": trigger.limit ? trigger.limit : 3 }'
+    retry:
+      max_attempts: 3
+      backoff: 100ms
+      on: [timeout, nonzero_exit]
+
+  summarize_each:
+    type: map
+    needs: [fetch_sources]
+    over: "steps.fetch_sources.output.results"
+    max_concurrency: 4
+    step:
+      type: command
+      command: ["node", "../../bin/llm-run.cjs", "--prompt-file", "prompts/summarize.md"]
+      input: '{ "text": item.body }'
+      catch:
+        - error_type: command_failure
+          result: { summary: "" }
+
+  score_quality:
+    type: command
+    needs: [fetch_sources, summarize_each]
+    command: ["node", "../../bin/quality-scorer.cjs"]
+    input: >
+      {
+        "sourceCount": $count(steps.fetch_sources.output.results),
+        "summaries": steps.summarize_each.output
+      }
+
+  route_on_score:
+    type: choice
+    needs: [score_quality]
+    branches:
+      - when: "steps.score_quality.output.score >= 0.7"
+        next: publish
+      - when: "steps.score_quality.output.score < 0.7"
+        next: flag_for_review
+    default: flag_for_review
+
+  publish:
+    type: command
+    command: ["node", "../../bin/publish-cli.cjs"]
+    input: "steps.summarize_each.output"
+    terminal: success
+
+  flag_for_review:
+    type: pass
+    input: '{ "reason": "low quality score", "score": steps.score_quality.output.score }'
+    terminal: success

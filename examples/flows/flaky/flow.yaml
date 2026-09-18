@@ -1,0 +1,30 @@
+schema_version: 1
+name: flaky
+version: 0.1.0
+description: Demonstrates resume; `wait_for_marker` fails until the marker file exists.
+
+steps:
+  prepare:
+    type: command
+    command: ["node", "-e", "process.stdout.write(JSON.stringify({ items: [1,2,3,4] }))"]
+
+  slow_map:
+    type: map
+    needs: [prepare]
+    over: "steps.prepare.output.items"
+    max_concurrency: 1
+    step:
+      type: command
+      command: ["node", "../../bin/slow-echo.cjs", "=trigger.delay_ms ? trigger.delay_ms : 0"]
+      input: "item"
+
+  wait_for_marker:
+    type: command
+    needs: [slow_map]
+    command: ["node", "../../bin/needs-marker.cjs", "=trigger.marker"]
+
+  done:
+    type: transform
+    needs: [wait_for_marker, slow_map]
+    input: '{ "count": $count(steps.slow_map.output), "marker": steps.wait_for_marker.output.marker }'
+    terminal: success

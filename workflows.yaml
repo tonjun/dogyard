@@ -1,0 +1,5 @@
+# Project-level defaults; any flow below this directory inherits `config` unless it overrides a key.
+schema_version: 1
+config:
+  default_timeout: 60s
+  max_concurrency: 8

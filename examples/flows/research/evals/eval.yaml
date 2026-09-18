@@ -1,0 +1,8 @@
+dataset: dataset.yaml
+graders:
+  - type: jsonata
+    name: published-or-flagged
+    expression: "$exists(output.published) or $exists(output.reason)"
+  - type: jsonata
+    name: expected-route
+    expression: "trace.steps[name='route_on_score'].selected = expected.route"

@@ -1,0 +1,29 @@
+tests:
+  - name: high score publishes
+    trigger: { query: "cats" }
+    mocks_file: ../mocks/good.yaml
+    expect:
+      output: { published: 2 }
+      path: [fetch_sources, summarize_each, score_quality, route_on_score, publish]
+      skipped: [flag_for_review]
+
+  - name: low score flags for review, failed summaries fall back via catch
+    trigger: { query: "cats" }
+    mocks_file: ../mocks/good.yaml
+    mocks:
+      summarize_each:
+        - { output: { summary: "ok" } }
+        - { stdout: "", stderr: "model refused", exit_code: 2 }
+      score_quality: { output: { score: 0.5 } }
+    expect:
+      output: { reason: "low quality score", score: 0.5 }
+      path: [fetch_sources, summarize_each, score_quality, route_on_score, flag_for_review]
+      output_jsonata: "$count(trace.steps[name='summarize_each'].items[status='caught']) = 1"
+
+  - name: search failure exhausts retries and fails the run
+    trigger: { query: "cats" }
+    mocks:
+      fetch_sources: { stdout: "", stderr: "503", exit_code: 1 }
+    expect:
+      error_type: nonzero_exit
+      path: [fetch_sources]

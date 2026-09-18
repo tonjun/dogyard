@@ -1,6 +1,6 @@
 # Project Spec: `project-no-name` — CLI-First Workflow Engine
 
-Status: Draft v0.1 (high-level)
+Status: Draft v0.2 (high-level; v0.2 adds step-granular resume, see §1.3/§3.7)
 Owner: (you)
 Target use: Input to Claude Code plan mode — this defines *what* to build and *why*; implementation-level design (exact schemas, module layout, algorithms) is left for plan mode to work out.
 
@@ -27,12 +27,12 @@ Existing workflow engines (AWS Step Functions, n8n, Temporal) are cloud-locked, 
 
 ### 1.3 Non-goals (v1)
 - No UI (Phase 2 — see §7).
-- No durable/resumable execution across process restarts (Temporal-style durability); a run is expected to complete within a single CLI process lifetime.
+- No Temporal-style in-process durability (no persistent workers, event history replay, or wait-for-external-event steps). A run executes within a single CLI process, but its trace is checkpointed after every step and map item, so a failed or interrupted run can be **resumed** by a later `resume <flow> <run_id>` invocation that reuses completed step/item outputs and re-executes only the rest (see §3.7).
 - No server, multi-tenancy, auth, or hosted execution.
 - No visual/drag-drop flow authoring.
 - No built-in scheduler (external cron can call the CLI).
 - No built-in, opinionated integration with any particular external tool (LLM runner or otherwise) in v1 — the engine only knows how to run CLI commands generically; any specific tool (including an LLM runner) is just "a command someone points a step at," configured by the flow author, not baked into the engine.
-- No human-in-the-loop / wait-for-external-event steps in v1 (would require durability, deferred).
+- No human-in-the-loop / wait-for-external-event steps in v1. Step-granular resume (§3.7) covers the "fix the tool, then continue" case; a true blocking wait step remains deferred.
 
 ---
 
@@ -178,6 +178,8 @@ Core capabilities the CLI needs to expose (exact command names/flags TBD in plan
 
 ### 3.7 Observability
 - Every run produces a structured, inspectable trace (steps visited, inputs/outputs/errors per step) — used for debugging, for test/eval assertions, and reusable later by the Phase 2 UI.
+- The trace is also the run's **checkpoint**: it is rewritten atomically on every step and map-item state change, and SIGINT/SIGTERM mark the run `interrupted` rather than leaving a stale `running` status.
+- **Resume**: `resume <flow> <run_id>` (or `run --resume`) reloads the flow, verifies its definition hash matches the one recorded in the trace (overridable with `--force`), keeps every `succeeded`/`caught` step and map item, and re-executes only pending, failed or interrupted work. The run keeps its id; `resume_count` increments. `runs <flow>` lists persisted runs.
 
 ---
 

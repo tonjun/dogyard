@@ -1,0 +1,42 @@
+schema_version: 1
+name: hello
+version: 0.1.0
+description: Uppercase the query and route on its length.
+
+config:
+  default_timeout: 10s
+
+trigger_schema:
+  type: object
+  required: [query]
+  properties:
+    query: { type: string }
+
+steps:
+  shout:
+    type: command
+    command: ["node", "-e", "process.stdout.write(JSON.stringify({ shouted: JSON.parse(require('fs').readFileSync(0,'utf8')).text.toUpperCase() }))"]
+    input: '{ "text": trigger.query }'
+
+  count:
+    type: command
+    command: ["node", "-e", "process.stdout.write(String(process.argv[1].length))", "=trigger.query"]
+    output_mode: json
+
+  route:
+    type: choice
+    needs: [shout, count]
+    branches:
+      - when: "steps.count.output > 3"
+        next: long
+    default: short
+
+  long:
+    type: pass
+    input: '{ "kind": "long", "value": steps.shout.output.shouted, "length": steps.count.output }'
+    terminal: success
+
+  short:
+    type: pass
+    input: '{ "kind": "short", "value": steps.shout.output.shouted, "length": steps.count.output }'
+    terminal: success
