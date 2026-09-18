@@ -16,7 +16,7 @@ export function registerQuality(program: Command): void {
       const res = scaffoldFlow({ name, dir: flags.dir, force: flags.force ?? false });
       log(`Created flow "${name}" in ${res.dir}`);
       for (const f of res.files) log(`  ${path.relative(process.cwd(), f)}`);
-      log(`\nNext: dagyard run ${path.relative(process.cwd(), res.dir)} --query "hello"`);
+      log(`\nNext: dogyard run ${path.relative(process.cwd(), res.dir)} --query "hello"`);
     });
 
   program

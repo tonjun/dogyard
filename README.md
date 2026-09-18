@@ -1,4 +1,4 @@
-# DagYard
+# DogYard
 
 A local-first, CLI-first workflow engine. Flows are YAML DAGs of named steps
 (GitHub Actions style `needs:`), data moves between steps through addressable
@@ -10,7 +10,7 @@ the terminal against plain files: no server, no UI, no cloud.
 
 ```bash
 pnpm install
-pnpm build          # compiles to dist/, exposes the `dagyard` bin
+pnpm build          # compiles to dist/, exposes the `dogyard` bin
 pnpm test           # unit + end-to-end tests
 ```
 

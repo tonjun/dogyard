@@ -1,4 +1,4 @@
-# Project Spec: `DagYard` — CLI-First Workflow Engine
+# Project Spec: `DogYard` — CLI-First Workflow Engine
 
 Status: Draft v0.2 (high-level; v0.2 adds step-granular resume, see §1.3/§3.7)
 Owner: (you)
