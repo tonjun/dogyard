@@ -1,4 +1,4 @@
-# project-no-name
+# DagYard
 
 A local-first, CLI-first workflow engine. Flows are YAML DAGs of named steps
 (GitHub Actions style `needs:`), data moves between steps through addressable
@@ -6,14 +6,11 @@ outputs (`steps.<name>.output`) selected with [JSONata](https://jsonata.org),
 and the core step primitive is **running a CLI command**. Everything works from
 the terminal against plain files: no server, no UI, no cloud.
 
-> `project-no-name` is a placeholder. Rename it in `package.json` (`name` and
-> `bin`) once the project has a real name.
-
 ## Install
 
 ```bash
 pnpm install
-pnpm build          # compiles to dist/, exposes the `project-no-name` bin
+pnpm build          # compiles to dist/, exposes the `dagyard` bin
 pnpm test           # unit + end-to-end tests
 ```
 

@@ -1,10 +1,10 @@
 {
-  "name": "project-no-name",
+  "name": "dagyard",
   "version": "0.1.0",
   "description": "Local-first, CLI-first workflow engine: YAML DAG flows of CLI command steps with JSONata data flow.",
   "type": "module",
   "bin": {
-    "project-no-name": "dist/cli/index.js"
+    "dagyard": "dist/cli/index.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

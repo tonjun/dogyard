@@ -1,10 +1,8 @@
-# Project Spec: `project-no-name` — CLI-First Workflow Engine
+# Project Spec: `DagYard` — CLI-First Workflow Engine
 
 Status: Draft v0.2 (high-level; v0.2 adds step-granular resume, see §1.3/§3.7)
 Owner: (you)
 Target use: Input to Claude Code plan mode — this defines *what* to build and *why*; implementation-level design (exact schemas, module layout, algorithms) is left for plan mode to work out.
-
-> Naming note: `project-no-name` is a placeholder used throughout as an example command/binary name. Rename project-wide once a real name is picked.
 
 ---
 
