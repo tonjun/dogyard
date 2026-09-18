@@ -72,7 +72,7 @@ export class RealRunner implements CommandRunner {
       child.stdout?.setEncoding("utf8").on("data", (d: string) => { stdout += d; });
       child.stderr?.setEncoding("utf8").on("data", (d: string) => {
         stderr += d;
-        if (this.opts.streamStderr) process.stderr.write(prefixLines(d, req.step, req.itemIndex));
+        if (this.opts.streamStderr) process.stderr.write(gray(prefixLines(d, req.step, req.itemIndex)));
       });
       child.on("error", (err: NodeJS.ErrnoException) => {
         fail(new FlowError("spawn_error", `Failed to start "${cmd}": ${err.message}`, { step: req.step, details: { code: err.code, argv: req.argv }, cause: err }));
@@ -97,6 +97,11 @@ export class RealRunner implements CommandRunner {
       }
     });
   }
+}
+
+/** Wraps text in ANSI gray, but only when writing to a real terminal. */
+function gray(s: string): string {
+  return process.stderr.isTTY ? `\x1b[90m${s}\x1b[0m` : s;
 }
 
 function tail(s: string, max = 4000): string {
