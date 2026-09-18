@@ -9,23 +9,23 @@ the terminal against plain files: no server, no UI, no cloud.
 ## Install
 
 ```bash
-pnpm install
-pnpm build          # compiles to dist/, exposes the `dogyard` bin
-pnpm test           # unit + end-to-end tests
+npm install
+npm run build       # compiles to dist/, exposes the `dogyard` bin
+npm test            # unit + end-to-end tests
 ```
 
-During development run the CLI without building: `pnpm dev <command> ...`
+During development run the CLI without building: `npm run dev <command> ...`
 (alias for `tsx src/cli/index.ts`).
 
 ## Quick start
 
 ```bash
-pnpm dev new my-flow --dir flows           # scaffold flows/my-flow/
-pnpm dev validate flows/my-flow
-pnpm dev run flows/my-flow --query "hello"
-pnpm dev test flows/my-flow                # fixture tests with mocked commands
-pnpm dev eval flows/my-flow                # dataset + graders -> scored report
-pnpm dev graph flows/my-flow --format mermaid
+npm run dev new my-flow --dir flows           # scaffold flows/my-flow/
+npm run dev validate flows/my-flow
+npm run dev run flows/my-flow --query "hello"
+npm run dev test flows/my-flow                # fixture tests with mocked commands
+npm run dev eval flows/my-flow                # dataset + graders -> scored report
+npm run dev graph flows/my-flow --format mermaid
 ```
 
 Three runnable examples live under `examples/flows/` (`hello`, `research`, `flaky`).
