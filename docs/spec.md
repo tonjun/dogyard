@@ -15,8 +15,9 @@ Existing workflow engines (AWS Step Functions, n8n, Temporal) are cloud-locked, 
 
 ### 1.2 Goals (v1)
 - CLI-first: every capability works via terminal commands and plain files, no server required.
-- Flows are declarative, YAML-defined state machines, structurally similar to AWS Step Functions ASL.
-- Data selection/transformation between steps uses **JSONata** (in place of ASL's JSONPath).
+- Flows are declarative, YAML-defined workflows: named steps connected by explicit dependencies (a DAG), patterned after GitHub Actions' jobs/`needs` model rather than AWS Step Functions' flat named-state + `next` graph — see §3.1 for rationale.
+- Data flows step-to-step via **addressable named outputs** (`steps.<name>.output`, à la GitHub Actions' `steps.<id>.outputs`), not a single mutable context blob threaded through ASL-style InputPath/Parameters/ResultPath/OutputPath.
+- Data selection/transformation is expressed with **JSONata** (richer than GitHub Actions' `${{ }}` expression syntax, and avoids ASL's JSONPath).
 - Every flow's initial trigger is a **user query** (a JSON object containing at least a query string).
 - All step inputs/outputs are JSON.
 - The core step primitive is **executing a CLI command**: run an arbitrary external command/binary, pass it structured input, capture its output (stdout/exit code) back into the flow's JSON context. This makes the engine generically useful for orchestrating any CLI tool — not tied to any single backend.
@@ -39,9 +40,9 @@ Existing workflow engines (AWS Step Functions, n8n, Temporal) are cloud-locked, 
 
 | Concept | Definition |
 |---|---|
-| **Flow** | A named, versioned workflow defined in its own folder as a YAML state machine plus config. |
-| **Step (State)** | A node in the flow: a CLI command execution, a pure data transform, a conditional branch, a parallel fan-out, an iteration over a collection, or a terminal success/failure. |
-| **Execution Context** | The JSON object carrying data through the flow, starting from the initial query input and evolving step by step. |
+| **Flow** | A named, versioned workflow defined in its own folder as a YAML DAG of named steps plus config. |
+| **Step** | A node in the flow's dependency graph, identified by a unique name: a CLI command execution, a pure data transform, a conditional branch, a fan-out over a collection (map), or a terminal success/failure. Declares `needs:` (zero or more upstream step names) to place itself in the DAG; steps with no dependency between them run concurrently. |
+| **Execution Context** | The initial query input plus the addressable, growing collection of each completed step's output (`steps.<name>.output`) — not a single blob progressively reshaped in place. JSONata expressions read from this context; a step never mutates another step's recorded output. |
 | **Run** | One execution of a flow against one input, producing an output JSON plus a trace. |
 | **Test** | A fixture-based, deterministic check (command execution mocked): given input X, expect output/behavior Y. |
 | **Eval** | A dataset-driven, scored assessment of flow quality across many examples, typically using real command execution. |
@@ -51,10 +52,101 @@ Existing workflow engines (AWS Step Functions, n8n, Temporal) are cloud-locked, 
 ## 3. Scope Areas
 
 ### 3.1 Flow definition
-- Declarative YAML per flow, describing states and transitions (start state, named states, `next`/branching, one or more terminal states).
-- Data flowing between steps is shaped using JSONata expressions at well-defined points (what goes into a step, where its result gets merged, what flows onward) — mirroring the spirit of ASL's InputPath/Parameters/ResultPath/OutputPath, but JSONata instead of JSONPath.
-- Step types needed in v1: CLI command task, pure transform, conditional branch, parallel, iterate/map, pass-through, and terminal success/fail.
-- Flows should support retry and error-catch semantics around steps that can fail (command failure, timeout, non-zero exit, etc.).
+- Declarative YAML per flow: a map of named steps, each optionally declaring `needs:` (upstream step names it depends on). The engine derives execution order and concurrency by topologically sorting this DAG — steps with no dependency path between them run in parallel automatically, up to a configurable concurrency limit. This replaces ASL's flat named-state + `next`/goto graph (built for durable, checkpoint-resumable execution, which is a non-goal here — see §1.3) and is closer to GitHub Actions' `jobs`/`needs` model.
+- Each step declares `input:` (a JSONata expression evaluated against the execution context, producing what the step receives) and, implicitly, an `output:` (the step's result, recorded as `steps.<name>.output` for downstream steps to reference). This two-hook model replaces ASL's four-stage InputPath/Parameters/ResultPath/OutputPath pipeline, which exists to minimize payloads across opaque network-service boundaries — a non-issue for a single local in-process context.
+- Step types needed in v1: CLI command task, pure transform, conditional branch (choice), map (fan-out over a collection with bounded concurrency, itself just a step whose `needs` graph runs N times), pass-through, and terminal success/fail. There is no separate "parallel" step type — concurrency falls out naturally from the DAG (§3.1 above); a fan-in/join is just a downstream step whose `needs:` lists multiple upstream steps.
+- Conditional branching uses an explicit `choice:` step (multi-way, JSONata-evaluated conditions) rather than GitHub Actions' per-step `if:` strings, which don't scale past simple skip logic.
+- Flows should support retry and error-catch semantics around steps that can fail (command failure, timeout, non-zero exit, etc.), kept from ASL's Retry/Catch model since neither GitHub Actions' `continue-on-error` nor `if: failure()` offers equivalent structured fallback routing.
+
+**Rationale summary (Step Functions vs. GitHub Actions as a pattern):** keep ASL's Retry/Catch and explicit multi-way Choice; drop ASL's flat state+`next` graph and its 4-stage data-selection pipeline in favor of GitHub Actions' named-step DAG (`needs:`) and addressable step outputs, since this engine runs single-process, non-durable, and locally (§1.3) — the machinery ASL needs for durable/async/opaque-service execution has no job to do here.
+
+### 3.1.1 Sample flow definition (illustrative — exact keys/schema TBD in plan mode)
+
+```yaml
+# flows/research-and-summarize/flow.yaml
+name: research-and-summarize
+version: 0.1.0
+
+config:
+  default_timeout: 30s
+  default_retry:
+    max_attempts: 2
+    backoff: 2s
+
+# Every flow's initial trigger is a JSON object containing at least a query string.
+# Available in expressions as `trigger`, e.g. trigger.query
+trigger_schema:
+  type: object
+  required: [query]
+  properties:
+    query: { type: string }
+
+steps:
+
+  # No `needs:` -> runs first, in parallel with any other root step.
+  fetch_sources:
+    type: command
+    command: ["search-cli", "--json"]
+    input: "{ \"q\": trigger.query, \"limit\": 5 }"   # JSONata -> stdin (default)
+    retry:
+      max_attempts: 3
+      on: [timeout, nonzero_exit]
+
+  # Map: runs the sub-step once per item, bounded concurrency, ordered results.
+  summarize_each:
+    type: map
+    needs: [fetch_sources]
+    over: "steps.fetch_sources.output.results"   # JSONata collection expression
+    max_concurrency: 4
+    step:
+      type: command
+      command: ["llm-run", "--prompt-file", "prompts/summarize.md"]
+      input: "{ \"text\": item.body }"            # `item` = current element
+      catch:
+        - error_type: command_failure
+          result: { summary: "" }                 # fallback value, flow continues
+
+  # Fan-in: depends on multiple upstream steps -> runs after both complete.
+  score_quality:
+    type: command
+    needs: [fetch_sources, summarize_each]
+    command: ["quality-scorer"]
+    input: >
+      {
+        "sourceCount": $count(steps.fetch_sources.output.results),
+        "summaries": steps.summarize_each.output
+      }
+
+  # Multi-way conditional branch (JSONata conditions), replaces per-step `if:`.
+  route_on_score:
+    type: choice
+    needs: [score_quality]
+    branches:
+      - when: "steps.score_quality.output.score >= 0.7"
+        next: publish
+      - when: "steps.score_quality.output.score < 0.7"
+        next: flag_for_review
+    default: flag_for_review
+
+  publish:
+    type: command
+    command: ["publish-cli"]
+    input: "steps.summarize_each.output"
+    terminal: success
+
+  flag_for_review:
+    type: pass
+    input: "{ \"reason\": \"low quality score\", \"score\": steps.score_quality.output.score }"
+    terminal: success
+```
+
+Notes on the sample:
+- `fetch_sources` has no `needs:` and starts immediately; if another root step existed alongside it, both would run concurrently — concurrency is inferred from the DAG, not declared with a separate "parallel" construct.
+- `summarize_each` is the map/iterate construct: `over` selects a collection via JSONata, `step` defines the per-item sub-step, and `item` is bound to the current element inside it.
+- `score_quality` depends on two upstream steps (`needs: [fetch_sources, summarize_each]`) — this is the fan-in/join pattern, expressed as an ordinary dependency rather than a nested Parallel-state's implicit join.
+- `steps.<name>.output` is how any step reads another's result — no ResultPath/OutputPath merging into a shared blob.
+- `route_on_score` is the explicit Choice construct for multi-way branching.
+- `catch` on `summarize_each.step` shows per-step fallback routing/value on failure, kept from ASL's Catch semantics.
 
 ### 3.2 Folder-per-flow convention
 - Each flow is self-contained: its definition, its config (default timeouts, retry policy), its tests, and its eval dataset all live together.
@@ -91,10 +183,10 @@ Core capabilities the CLI needs to expose (exact command names/flags TBD in plan
 
 ## 4. Control Flow Requirements (v1)
 
-- **Sequential** step-to-step execution (baseline).
-- **Choice/branching**: route based on conditions evaluated against the current context.
-- **Parallel**: run multiple branches concurrently against the same input, collect their results.
-- **Iterate/Map**: run a sub-flow once per item in a collection, with bounded concurrency, collecting results in order.
+- **Sequential** step-to-step execution (baseline): expressed as a chain of `needs:` dependencies.
+- **Choice/branching**: an explicit `choice` step type, routing based on JSONata conditions evaluated against the execution context.
+- **Parallel fan-out/fan-in**: not a distinct step type — falls out of the DAG itself. Steps with no dependency path between them run concurrently; a step naming multiple steps in `needs:` is the join/fan-in point, collecting each upstream step's output by name (see §3.1.1 sample).
+- **Iterate/Map**: a `map` step type — run a sub-step once per item in a collection, with bounded concurrency, collecting results in order.
 - **Retry/Catch**: per-step retry policy on specific error types, and fallback routing on unhandled errors.
 
 ---
