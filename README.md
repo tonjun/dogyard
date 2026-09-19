@@ -38,7 +38,7 @@ Node scripts in `examples/bin/`.
 |---|---|
 | **Flow** | A folder with `flow.yaml` plus its tests, mocks and evals. Self-contained and versioned. |
 | **Step** | A named node: `command`, `transform`, `pass`, `choice` or `map`. `needs:` places it in the DAG. |
-| **Trigger** | The JSON object a run starts with. Available in expressions as `trigger`. |
+| **Trigger** | The JSON object a run starts with. Available in expressions as `trigger`. Optional: with no trigger it is `{}`, so a first step can fetch its own input (a file, a database). |
 | **Execution context** | `trigger` plus `steps.<name>.output` / `steps.<name>.status` for every step so far. Step outputs are never mutated. |
 | **Run** | One execution of a flow. Produces an output JSON and a trace at `<flow>/.runs/<run_id>/trace.json`. |
 | **Test** | Deterministic fixture: trigger + mocked command output, assertions on output and path. Step tests (`steps/<step>/tests/`) run one command step against a supplied context. |
@@ -58,7 +58,7 @@ config:                        # all optional; steps override per-step
   max_concurrency: 8           # steps (and default map items) in flight at once
   run_timeout: 10m             # whole-run guardrail
 
-trigger_schema:                # optional JSON Schema; failures are `schema_validation` errors
+trigger_schema:                # optional JSON Schema; failures are `schema_validation` errors (use `required` to demand input)
   type: object
   required: [query]
   properties: { query: { type: string } }
@@ -77,7 +77,7 @@ steps:
     max_concurrency: 4
     step:                                                 # command | transform | pass
       type: command
-      command: ["llm-run", "--prompt-file", "prompts/summarize.md"]
+      command: ["llm-run", "--prompt-file", "../../prompts/summarize.md"]
       input: '{ "text": item.body, "i": index }'         # `item` and `index` are bound
       catch:
         - { error_type: command_failure, result: { summary: "" } }
@@ -122,8 +122,10 @@ Common fields: `needs`, `input`, `timeout`, `retry`, `catch`, `terminal` (`succe
 `args` appends it as one JSON string argument. `env` sets `WF_INPUT` (JSON) plus
 `WF_INPUT_<KEY>` for each top-level scalar key. In every mode, argv entries
 beginning with `=` are JSONata expressions; arrays expand to several arguments,
-`undefined`/`null` drops the argument. Relative paths in `command`/`cwd` resolve
-from the flow folder.
+`undefined`/`null` drops the argument. A command runs with its working directory
+set to the step's own `steps/<step>/` folder when that folder exists, otherwise
+the flow folder; an explicit `cwd` overrides this and resolves from the flow
+folder. Relative paths in `command` resolve from that working directory.
 
 **Output parsing.** `auto` parses stdout as JSON when it looks like JSON, else
 returns the trimmed text. `json` fails with `output_parse` if stdout is not JSON.
@@ -180,7 +182,7 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 | `new <name> [--dir flows]` | Scaffold a flow folder with a sample test, eval and `steps/shout/` step folder. |
 | `new-step <flow> <step> [--force]` | Scaffold `steps/<step>/` (starter test + eval) for an existing command step. |
 | `validate <flow>` | Structural + reference + DAG + expression-syntax checks. `--json` for machine output. |
-| `run <flow> (--query <text> \| --input <json> \| --input-file <path>)` | Run once. `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `-q`. |
+| `run <flow> [--query <text> \| --input <json> \| --input-file <path>]` | Run once; the trigger is optional (defaults to `{}`). `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `-q`. |
 | `resume <flow> <run_id> [--force]` | Continue a failed or interrupted run from its trace. Also `run --resume <run_id>`. |
 | `runs <flow>` / `runs show <flow> <run_id>` | List persisted runs / print one trace. |
 | `test <flow> [-k filter] [--step <name>] [--no-steps]` | Run `tests/*.test.yaml` with mocked commands plus every `steps/<step>/tests/*.test.yaml`. `--step` runs one step's tests only; `--no-steps` skips step tests. |
@@ -196,7 +198,7 @@ Exit codes: `0` success, `1` failure or validation error, `130` interrupted.
 ```yaml
 tests:
   - name: high score publishes
-    trigger: { query: "cats" }
+    trigger: { query: "cats" }            # optional, default {}
     mocks_file: ../mocks/good.yaml        # optional base mocks
     mocks:                                # per-step overrides
       score_quality: { output: { score: 0.9 } }
@@ -236,11 +238,11 @@ tests:
       index: 0                            # selects the entry of an array mock
     mock: { output: { results: [] } }     # exactly one of: mock | mocks_file | real: true
     # mocks_file: ../../../mocks/good.yaml   # uses mocks[<step>] from a flow mocks file
-    # real: true                             # spawn the real command (cwd = flow folder)
+    # real: true                             # spawn the real command (cwd = steps/<step>/, else flow folder)
     expect:
       status: succeeded                   # succeeded | caught | failed (default: failed when error_type set)
       input: { q: "cats", limit: 3 }      # the resolved step input
-      argv: ["node", "../../bin/search-cli.cjs", "--json"]
+      argv: ["node", "../../../../bin/search-cli.cjs", "--json"]
       output: { results: [] }
       output_jsonata: "$count(output.results) = 0"   # over { output, input, argv, context, step }
       error_type: nonzero_exit
@@ -255,7 +257,7 @@ steps cannot run in isolation.
 ## Evals (`evals/eval.yaml` + dataset)
 
 ```yaml
-dataset: dataset.yaml       # or .jsonl; [{ id?, trigger, expected? }]
+dataset: dataset.yaml       # or .jsonl; [{ id?, trigger?, expected? }] (trigger defaults to {})
 pass_threshold: 1           # example passes when mean grader score >= threshold
 concurrency: 2
 graders:
@@ -307,7 +309,7 @@ use and pass the prompt as an argument or on stdin:
 ```yaml
 summarize:
   type: command
-  command: ["llm", "-m", "claude-sonnet-5", "--system-file", "prompts/summarize.md"]
+  command: ["llm", "-m", "claude-sonnet-5", "--system-file", "../../prompts/summarize.md"]
   input: "steps.fetch.output.text"
   input_mode: stdin
   output_mode: text

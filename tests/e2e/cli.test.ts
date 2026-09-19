@@ -32,7 +32,8 @@ let research: string;
 let flaky: string;
 beforeAll(() => {
   work = mkdtempSync(path.join(tmpdir(), "wf-e2e-"));
-  cpSync(EXAMPLES, path.join(work, "examples"), { recursive: true });
+  // skip .runs so stale traces from local runs of the examples do not leak into the copy
+  cpSync(EXAMPLES, path.join(work, "examples"), { recursive: true, filter: (src) => path.basename(src) !== ".runs" });
   hello = path.join(work, "examples/flows/hello");
   research = path.join(work, "examples/flows/research");
   flaky = path.join(work, "examples/flows/flaky");
@@ -101,9 +102,21 @@ describe("run", () => {
     const r = await cli(["run", hello, "--input", '{"nope":1}', "-q", "--no-trace-file"]);
     expect(r.code).toBe(1);
     expect(json(r.stdout).error.type).toBe("schema_validation");
-    const r2 = await cli(["run", hello]);
+    const r2 = await cli(["run", hello, "-q", "--no-trace-file"]);
     expect(r2.code).toBe(1);
-    expect(r2.stderr).toMatch(/--query/);
+    expect(json(r2.stdout).error.type).toBe("schema_validation");
+  });
+  it("runs with no trigger when the flow does not require one", async () => {
+    const dir = path.join(work, "no-trigger");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "data.json"), '{"rows":2}');
+    writeFileSync(
+      path.join(dir, "flow.yaml"),
+      'name: no-trigger\nversion: 0.1.0\nsteps:\n  load:\n    type: command\n    command: ["cat", "data.json"]\n',
+    );
+    const r = await cli(["run", dir, "-q", "--no-trace-file"]);
+    expect(r.code, r.stderr).toBe(0);
+    expect(json(r.stdout)).toEqual({ rows: 2 });
   });
   it("runs the research flow: parallel map, fan-in, choice, terminal", async () => {
     const r = await cli(["run", research, "--input", '{"query":"cats","limit":3}', "--trace", "-q"]);
@@ -176,7 +189,7 @@ describe("test / eval", () => {
     const j = json(r.stdout);
     expect(j.step).toBe("fetch_sources");
     expect(j.pass_rate).toBe(1);
-    expect(j.examples[0].result.argv).toEqual(["node", "../../bin/search-cli.cjs", "--json"]);
+    expect(j.examples[0].result.argv).toEqual(["node", "../../../../bin/search-cli.cjs", "--json"]);
     expect(r.stderr).toMatch(/Report: .*steps\/fetch_sources\/evals\/reports\//);
     expect(readdirSync(path.join(research, "steps/fetch_sources/evals/reports"))).toHaveLength(1);
     const m = await cli(["eval", flaky, "--step", "wait_for_marker", "--no-report"]);

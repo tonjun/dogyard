@@ -4,7 +4,7 @@ tests:
       trigger: { marker: /tmp/some-marker }
     mock: { output: { ok: true, marker: /tmp/some-marker } }
     expect:
-      argv: ["node", "../../bin/needs-marker.cjs", "/tmp/some-marker"]
+      argv: ["node", "../../../../bin/needs-marker.cjs", "/tmp/some-marker"]
       output: { ok: true, marker: /tmp/some-marker }
 
   - name: a missing marker fails with nonzero_exit

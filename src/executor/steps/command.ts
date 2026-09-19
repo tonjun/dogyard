@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { FlowError } from "../../errors.js";
 import { evaluateExpression, resolveTemplatedArgs } from "../../expr.js";
 import type { CommandStep } from "../../schema/flow.js";
@@ -20,6 +22,17 @@ export interface CommandStepOptions {
   itemIndex?: number;
 }
 
+/**
+ * Working directory for a command step: an explicit `cwd` (relative to the flow
+ * folder), else the step's own `steps/<step>/` folder when it exists, else the
+ * flow folder.
+ */
+export function resolveStepCwd(flowDir: string, stepName: string, step: Pick<CommandStep, "cwd">): string {
+  if (step.cwd) return path.resolve(flowDir, step.cwd);
+  const stepDir = path.join(flowDir, "steps", stepName);
+  return existsSync(stepDir) ? stepDir : flowDir;
+}
+
 /** Resolve input + argv, dispatch to the runner, parse stdout per `output_mode`. */
 export async function executeCommandStep(step: CommandStep, ctx: ExecutionContext, opts: CommandStepOptions): Promise<CommandStepOutcome> {
   const input = step.input !== undefined ? await evaluateExpression(step.input, ctx) : undefined;
@@ -34,8 +47,7 @@ export function buildRequest(step: CommandStep, argv: string[], input: unknown, 
   if (opts.itemIndex !== undefined) req.itemIndex = opts.itemIndex;
   if (opts.timeout !== undefined) req.timeout = opts.timeout;
   if (opts.signal) req.signal = opts.signal;
-  const cwd = step.cwd ?? opts.cwd;
-  if (cwd) req.cwd = cwd;
+  if (opts.cwd) req.cwd = opts.cwd;
   const env: Record<string, string> = { ...(step.env ?? {}) };
 
   if (input !== undefined) {

@@ -60,7 +60,8 @@ config:
     backoff: 1s
     on: [command_failure]
 
-# The initial trigger is a JSON object; it is available in expressions as \`trigger\`.
+# The initial trigger is an optional JSON object (default {}); it is available in expressions as \`trigger\`.
+# \`required\` is how a flow demands input.
 trigger_schema:
   type: object
   required: [query]

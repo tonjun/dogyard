@@ -6,7 +6,7 @@ tests:
       item: 1
     mock: { output: { done: true, item: 1 } }
     expect:
-      argv: ["node", "../../bin/slow-echo.cjs", "0"]
+      argv: ["node", "../../../../bin/slow-echo.cjs", "0"]
       input: 1
 
   - name: the delay comes from the trigger
@@ -15,7 +15,7 @@ tests:
       item: 2
     mock: { output: { done: true, item: 2 } }
     expect:
-      argv: ["node", "../../bin/slow-echo.cjs", "25"]
+      argv: ["node", "../../../../bin/slow-echo.cjs", "25"]
 
   - name: the real command echoes the item back
     context:

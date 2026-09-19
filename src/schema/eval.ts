@@ -24,7 +24,7 @@ export type EvalConfig = z.infer<typeof evalConfigSchema>;
 export const evalExampleSchema = z
   .object({
     id: z.string().optional(),
-    trigger: z.record(z.string(), z.unknown()),
+    trigger: z.record(z.string(), z.unknown()).default({}),
     expected: z.unknown().optional(),
   })
   .strict();

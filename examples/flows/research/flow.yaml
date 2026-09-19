@@ -20,7 +20,7 @@ trigger_schema:
 steps:
   fetch_sources:
     type: command
-    command: ["node", "../../bin/search-cli.cjs", "--json"]
+    command: ["node", "../../../../bin/search-cli.cjs", "--json"]
     input: '{ "q": trigger.query, "limit": trigger.limit ? trigger.limit : 3 }'
     retry:
       max_attempts: 3
@@ -34,7 +34,7 @@ steps:
     max_concurrency: 4
     step:
       type: command
-      command: ["node", "../../bin/llm-run.cjs", "--prompt-file", "prompts/summarize.md"]
+      command: ["node", "../../../../bin/llm-run.cjs", "--prompt-file", "../../prompts/summarize.md"]
       input: '{ "text": item.body }'
       catch:
         - error_type: command_failure
@@ -43,7 +43,7 @@ steps:
   score_quality:
     type: command
     needs: [fetch_sources, summarize_each]
-    command: ["node", "../../bin/quality-scorer.cjs"]
+    command: ["node", "../../../../bin/quality-scorer.cjs"]
     input: >
       {
         "sourceCount": $count(steps.fetch_sources.output.results),
@@ -62,7 +62,7 @@ steps:
 
   publish:
     type: command
-    command: ["node", "../../bin/publish-cli.cjs"]
+    command: ["node", "../../../../bin/publish-cli.cjs"]
     input: "steps.summarize_each.output"
     terminal: success
 

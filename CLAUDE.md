@@ -115,8 +115,10 @@ with its "tools" implemented as small Node scripts in `examples/bin/`.
   version (flow syntax, step types, execution semantics, error taxonomy,
   CLI reference, test/eval file formats). Keep both in sync with schema
   changes in `src/schema/`.
-- Relative paths in `command`/`cwd` fields resolve from the flow folder, not
-  the process cwd.
+- A `command` step runs with cwd = `<flow>/steps/<step>/` when that folder
+  exists, else the flow folder (`resolveStepCwd` in `executor/steps/command.ts`).
+  An explicit `cwd` field overrides this and resolves from the flow folder.
+  Relative paths in `command` resolve from that cwd, never the process cwd.
 - Every `command` step needs a mock when run under `test`/`--mocks`; a
   missing mock is a hard failure by design (keeps tests deterministic).
   Step tests follow the same principle: a case must say `mock`, `mocks_file`

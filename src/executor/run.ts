@@ -10,7 +10,7 @@ import { RealRunner, type CommandRunner } from "./command-runner.js";
 import { buildContext } from "./context.js";
 import { withRetry } from "./retry.js";
 import { executeChoiceStep } from "./steps/choice.js";
-import { executeCommandStep } from "./steps/command.js";
+import { executeCommandStep, resolveStepCwd } from "./steps/command.js";
 import { executeMapStep } from "./steps/map.js";
 import { executeTransformStep } from "./steps/transform.js";
 
@@ -293,7 +293,7 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
     if (signal.aborted) throw signal.reason instanceof FlowError ? signal.reason : new FlowError("interrupted", "Run aborted", { step: st.name });
     switch (step.type) {
       case "command": {
-        const o: Parameters<typeof executeCommandStep>[2] = { stepName: st.name, runner, signal, cwd: loaded.dir };
+        const o: Parameters<typeof executeCommandStep>[2] = { stepName: st.name, runner, signal, cwd: resolveStepCwd(loaded.dir, st.name, step) };
         if (timeout !== undefined) o.timeout = timeout;
         try {
           const r = await executeCommandStep(step, ctx, o);
@@ -329,7 +329,7 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
           stepName: st.name,
           runner,
           signal,
-          cwd: loaded.dir,
+          cwd: step.step.type === "command" ? resolveStepCwd(loaded.dir, st.name, step.step) : loaded.dir,
           itemRetry,
           maxConcurrency: step.max_concurrency ?? maxConcurrency,
           onItemChange: (items) => {

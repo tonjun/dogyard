@@ -23,7 +23,7 @@ export const mocksFileSchema = z.object({ mocks: mocksSchema }).strict();
 export const testCaseSchema = z
   .object({
     name: z.string(),
-    trigger: z.record(z.string(), z.unknown()),
+    trigger: z.record(z.string(), z.unknown()).default({}),
     mocks: mocksSchema.default({}),
     mocks_file: z.string().optional(),
     expect: z

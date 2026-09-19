@@ -6,7 +6,7 @@ tests:
     mock: { output: { results: [] } }
     expect:
       input: { q: "cats", limit: 3 }
-      argv: ["node", "../../bin/search-cli.cjs", "--json"]
+      argv: ["node", "../../../../bin/search-cli.cjs", "--json"]
       output: { results: [] }
 
   - name: explicit limit is passed through

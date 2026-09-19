@@ -16,7 +16,7 @@ Existing workflow engines (AWS Step Functions, n8n, Temporal) are cloud-locked, 
 - Flows are declarative, YAML-defined workflows: named steps connected by explicit dependencies (a DAG), patterned after GitHub Actions' jobs/`needs` model rather than AWS Step Functions' flat named-state + `next` graph — see §3.1 for rationale.
 - Data flows step-to-step via **addressable named outputs** (`steps.<name>.output`, à la GitHub Actions' `steps.<id>.outputs`), not a single mutable context blob threaded through ASL-style InputPath/Parameters/ResultPath/OutputPath.
 - Data selection/transformation is expressed with **JSONata** (richer than GitHub Actions' `${{ }}` expression syntax, and avoids ASL's JSONPath).
-- Every flow's initial trigger is a **user query** (a JSON object containing at least a query string).
+- Every flow's initial trigger is an **optional JSON object** (defaults to `{}`), so the first step can fetch its own input from a file or database. A flow that needs input declares it in `trigger_schema`.
 - All step inputs/outputs are JSON.
 - The core step primitive is **executing a CLI command**: run an arbitrary external command/binary, pass it structured input, capture its output (stdout/exit code) back into the flow's JSON context. This makes the engine generically useful for orchestrating any CLI tool — not tied to any single backend.
 - Each flow lives in its **own self-contained folder** with its own config — runnable, testable, and evaluable independently of any other flow or a central engine process.
@@ -71,7 +71,7 @@ config:
     max_attempts: 2
     backoff: 2s
 
-# Every flow's initial trigger is a JSON object containing at least a query string.
+# The initial trigger is an optional JSON object (default {}); use `required` to demand fields.
 # Available in expressions as `trigger`, e.g. trigger.query
 trigger_schema:
   type: object
@@ -148,7 +148,7 @@ Notes on the sample:
 
 ### 3.2 Folder-per-flow convention
 - Each flow is self-contained: its definition, its config (default timeouts, retry policy), its tests, and its eval dataset all live together.
-- Each command step may additionally own a `steps/<step>/` folder inside the flow, holding that step's own tests and evals. The folder name is the step name; `flow.yaml` remains the single definition of the step.
+- Each command step may additionally own a `steps/<step>/` folder inside the flow, holding that step's own tests and evals. The folder name is the step name; `flow.yaml` remains the single definition of the step. When the folder exists, the command runs with it as the working directory (otherwise the flow folder); an explicit `cwd` overrides this and resolves from the flow folder.
 - A flow must be runnable/testable/evaluable by pointing the CLI at its folder alone — no hard dependency on a shared/global engine state, though flows may optionally opt into shared project-level defaults.
 
 ### 3.3 CLI command step (core primitive)

@@ -15,13 +15,13 @@ steps:
     max_concurrency: 1
     step:
       type: command
-      command: ["node", "../../bin/slow-echo.cjs", "=trigger.delay_ms ? trigger.delay_ms : 0"]
+      command: ["node", "../../../../bin/slow-echo.cjs", "=trigger.delay_ms ? trigger.delay_ms : 0"]
       input: "item"
 
   wait_for_marker:
     type: command
     needs: [slow_map]
-    command: ["node", "../../bin/needs-marker.cjs", "=trigger.marker"]
+    command: ["node", "../../../../bin/needs-marker.cjs", "=trigger.marker"]
 
   done:
     type: transform

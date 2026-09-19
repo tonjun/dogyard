@@ -45,10 +45,15 @@ export interface TriggerFlags {
   inputFile?: string;
 }
 
-/** Build the trigger object from --query / --input / --input-file (or stdin when `-`). */
+/**
+ * Build the trigger object from --query / --input / --input-file (or stdin when `-`).
+ * The trigger is optional: with no flags it is `{}`, for flows whose first step
+ * fetches its own input (a file, a database). Flows that need input declare it
+ * in `trigger_schema`.
+ */
 export function resolveTrigger(flags: TriggerFlags): Record<string, unknown> {
   const given = [flags.query !== undefined, flags.input !== undefined, flags.inputFile !== undefined].filter(Boolean).length;
-  if (given === 0) fail("Provide a trigger with --query <text>, --input <json>, or --input-file <path>");
+  if (given === 0) return {};
   if (given > 1) fail("Use only one of --query, --input, --input-file");
   let value: unknown;
   if (flags.query !== undefined) return { query: flags.query };

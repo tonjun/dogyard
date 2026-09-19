@@ -7,7 +7,7 @@ tests:
     mock: { output: { summary: "two words" } }
     expect:
       input: { text: "alpha alpha" }
-      argv: ["node", "../../bin/llm-run.cjs", "--prompt-file", "prompts/summarize.md"]
+      argv: ["node", "../../../../bin/llm-run.cjs", "--prompt-file", "../../prompts/summarize.md"]
       output: { summary: "two words" }
 
   - name: the real fake LLM counts words and reads the prompt file

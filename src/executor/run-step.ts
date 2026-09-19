@@ -8,7 +8,7 @@ import { RealRunner, type CommandRunner } from "./command-runner.js";
 import type { ExecutionContext } from "./context.js";
 import { withRetry } from "./retry.js";
 import { DEFAULT_RETRY } from "./run.js";
-import { executeCommandStep } from "./steps/command.js";
+import { executeCommandStep, resolveStepCwd } from "./steps/command.js";
 import { executeTransformStep } from "./steps/transform.js";
 
 export interface StepRunOptions {
@@ -70,7 +70,7 @@ export async function runStep(opts: StepRunOptions): Promise<StepRunResult> {
 
   const body = async (): Promise<unknown> => {
     if (step.type === "command") {
-      const o: Parameters<typeof executeCommandStep>[2] = { stepName, runner, cwd: loaded.dir };
+      const o: Parameters<typeof executeCommandStep>[2] = { stepName, runner, cwd: resolveStepCwd(loaded.dir, stepName, step) };
       if (timeout !== undefined) o.timeout = timeout;
       if (opts.signal) o.signal = opts.signal;
       if (isMapItem) o.itemIndex = ctx.index;
