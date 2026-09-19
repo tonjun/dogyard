@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Command } from "commander";
 import { buildGraph, exportGraph, type GraphFormat } from "../../graph.js";
 import { FLOW_FILENAMES, LoadError, loadFlow } from "../../loader.js";
-import { listRuns, readTrace, traceFile } from "../../trace.js";
+import { latestRun, listRuns, readTrace, runsDir, traceFile } from "../../trace.js";
 import { formatDiagnostics, validateFlow } from "../../validate.js";
 import { fail, loadValidFlow, log, printJson } from "../util.js";
 
@@ -115,11 +115,16 @@ export function registerInspect(program: Command): void {
       }
     });
   runs
-    .command("show <flow> <run_id>")
-    .description("Print a run's trace JSON")
+    .command("show <flow> [run_id]")
+    .description("Print a run's trace JSON (the latest run if no run_id, or run_id is `latest`)")
     .option("--trace-dir <dir>", "directory holding run traces")
-    .action((flowPath: string, runId: string, flags: { traceDir?: string }) => {
+    .action((flowPath: string, runId: string | undefined, flags: { traceDir?: string }) => {
       const loaded = loadValidFlow(flowPath);
+      if (runId === undefined || runId === "latest") {
+        const latest = latestRun(loaded.dir, flags.traceDir);
+        if (!latest) fail(`No runs found under ${runsDir(loaded.dir, flags.traceDir)}`);
+        return printJson(latest);
+      }
       const file = traceFile(loaded.dir, runId, flags.traceDir);
       if (!existsSync(file)) fail(`No trace at ${file}`);
       printJson(readTrace(file));

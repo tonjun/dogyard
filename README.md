@@ -184,7 +184,7 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 | `validate <flow>` | Structural + reference + DAG + expression-syntax checks. `--json` for machine output. |
 | `run <flow> [--query <text> \| --input <json> \| --input-file <path>]` | Run once; the trigger is optional (defaults to `{}`). `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `-q`. |
 | `resume <flow> <run_id> [--force]` | Continue a failed or interrupted run from its trace. Also `run --resume <run_id>`. |
-| `runs <flow>` / `runs show <flow> <run_id>` | List persisted runs / print one trace. |
+| `runs <flow>` / `runs show <flow> [run_id]` | List persisted runs / print one trace (the latest run when `run_id` is omitted or `latest`). |
 | `test <flow> [-k filter] [--step <name>] [--no-steps]` | Run `tests/*.test.yaml` with mocked commands plus every `steps/<step>/tests/*.test.yaml`. `--step` runs one step's tests only; `--no-steps` skips step tests. |
 | `eval <flow> [--step <name>] [--dataset] [--mocks] [--concurrency] [--limit] [--report] [--json]` | Score a dataset and write a report. With `--step`, evaluate that step alone using `steps/<name>/evals/`. |
 | `list [root]` | Find flows under a directory. |

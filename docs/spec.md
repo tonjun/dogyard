@@ -180,7 +180,7 @@ Core capabilities the CLI needs to expose (exact command names/flags TBD in plan
 ### 3.7 Observability
 - Every run produces a structured, inspectable trace (steps visited, inputs/outputs/errors per step) — used for debugging, for test/eval assertions, and reusable later by the Phase 2 UI.
 - The trace is also the run's **checkpoint**: it is rewritten atomically on every step and map-item state change, and SIGINT/SIGTERM mark the run `interrupted` rather than leaving a stale `running` status.
-- **Resume**: `resume <flow> <run_id>` (or `run --resume`) reloads the flow, verifies its definition hash matches the one recorded in the trace (overridable with `--force`), keeps every `succeeded`/`caught` step and map item, and re-executes only pending, failed or interrupted work. The run keeps its id; `resume_count` increments. `runs <flow>` lists persisted runs.
+- **Resume**: `resume <flow> <run_id>` (or `run --resume`) reloads the flow, verifies its definition hash matches the one recorded in the trace (overridable with `--force`), keeps every `succeeded`/`caught` step and map item, and re-executes only pending, failed or interrupted work. The run keeps its id; `resume_count` increments. `runs <flow>` lists persisted runs; `runs show <flow> [run_id]` prints a trace, defaulting to the latest run.
 
 ---
 

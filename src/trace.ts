@@ -111,6 +111,11 @@ export function listRuns(flowDir: string, traceDir?: string): RunTrace[] {
   return runs.sort((a, b) => a.started_at.localeCompare(b.started_at));
 }
 
+/** The most recently started run, if any. */
+export function latestRun(flowDir: string, traceDir?: string): RunTrace | undefined {
+  return listRuns(flowDir, traceDir).at(-1);
+}
+
 /** Ordered list of step names that actually executed (succeeded/caught/failed), in completion order. */
 export function executedPath(trace: RunTrace): string[] {
   return trace.steps

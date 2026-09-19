@@ -261,6 +261,28 @@ describe("test / eval", () => {
   });
 });
 
+describe("runs show", () => {
+  it("defaults to the latest run, also as `latest`, and still accepts a run id", async () => {
+    const dir = path.join(work, "examples/flows/hello-latest");
+    cpSync(hello, dir, { recursive: true });
+    rmSync(path.join(dir, ".runs"), { recursive: true, force: true });
+
+    const none = await cli(["runs", "show", dir]);
+    expect(none.code).toBe(1);
+    expect(none.stderr).toMatch(/No runs found/);
+
+    const first = json((await cli(["run", dir, "--query", "first", "--trace", "-q"])).stdout);
+    const second = json((await cli(["run", dir, "--query", "second", "--trace", "-q"])).stdout);
+    expect(second.run_id).not.toBe(first.run_id);
+
+    const latest = await cli(["runs", "show", dir]);
+    expect(latest.code, latest.stderr).toBe(0);
+    expect(json(latest.stdout).run_id).toBe(second.run_id);
+    expect(json((await cli(["runs", "show", dir, "latest"])).stdout).run_id).toBe(second.run_id);
+    expect(json((await cli(["runs", "show", dir, first.run_id])).stdout).run_id).toBe(first.run_id);
+  });
+});
+
 describe("resume", () => {
   it("resumes a failed run after the cause is fixed, re-running only what failed", async () => {
     const marker = path.join(work, "marker1");
