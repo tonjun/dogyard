@@ -28,7 +28,7 @@ npm run dev eval flows/my-flow                # dataset + graders -> scored repo
 npm run dev graph flows/my-flow --format mermaid
 ```
 
-Three runnable examples live under `examples/flows/` (`hello`, `research`, `flaky`).
+Four runnable examples live under `examples/flows/` (`hello`, `research`, `flaky`, `filter`).
 The `research` flow mirrors the sample in `docs/spec.md`; its "tools" are tiny
 Node scripts in `examples/bin/`.
 
@@ -145,6 +145,89 @@ returns the trimmed text. `json` fails with `output_parse` if stdout is not JSON
 - `retry` re-runs a step for errors matching `on`. `catch` matches the first
   clause whose `error_type` fits, marks the step `caught` and uses `result` as
   its output so downstream steps continue.
+
+### Iterating and filtering
+
+`map` runs its sub-step once per element of `over` and has no per-item skip:
+there is no `when:` on the sub-step, and a sub-step cannot be a `choice`.
+Filtering means shaping the list *before* the map (or the results *after* it).
+A runnable version of everything below is in `examples/flows/filter`.
+
+**1. Filter inline in `over`.** `over` is a JSONata expression, so a predicate
+selects which items run. Items that don't match are never executed.
+
+```yaml
+process:
+  type: map
+  needs: [fetch]
+  over: 'steps.fetch.output.items[status = "active" and score > 5]'
+  step:
+    type: command
+    command: ["node", "process.js", "=item.id"]
+    input: '{ "id": item.id, "position": index }'
+```
+
+**2. Filter in a step of its own.** Worth it when the predicate is long or you
+want the filtered list in the trace. Wrap the expression in `[ ... ]` so the
+result is always an array (see the gotchas below).
+
+```yaml
+shippable:
+  type: transform
+  needs: [load]
+  input: '[steps.load.output.orders[status = "paid" and total >= 50]]'
+
+ship_each:
+  type: map
+  needs: [shippable]
+  over: "steps.shippable.output"
+  step: { type: command, command: ["ship-cli"], input: "item" }
+```
+
+**3. Skip the map when nothing matches.** An empty list already runs zero
+items, but if you also want to skip everything downstream, route with a
+`choice`. Targets it does not select are `skipped`, and so is anything after them.
+
+```yaml
+any_to_ship:
+  type: choice
+  needs: [shippable]
+  branches:
+    - { when: "$count(steps.shippable.output) > 0", next: ship_each }
+  default: nothing_to_ship
+```
+
+**4. Filter the map's results.** `steps.<map>.output` has one entry per item
+that ran, in order, so downstream steps can filter it like any array.
+
+```yaml
+report:
+  type: pass
+  needs: [ship_each]
+  input: '{ "big": steps.ship_each.output[total >= 100].id[] }'
+```
+
+**Gotchas**
+
+- **Indexes refer to the filtered list.** `index` and the output positions
+  count only the items that ran, not the original array. Carry an id through
+  the sub-step if you need to correlate results with the source.
+- **Use `$$` for root values inside a predicate.** Within `[...]` the context
+  is the current element, so `trigger.min` looks for `min` on the item. Write
+  `$$.trigger.min` (or `$$.steps.x.output`) to reach the execution context.
+- **An empty filter result is stored as `null`, and `$count(null)` is `1`.**
+  A bare `items[score > 5]` that matches nothing yields no value, so a
+  `choice` on `$count(steps.filter.output) > 0` wrongly selects the map.
+  Wrap the filter in `[ ... ]` (empty gives `[]`), or test with
+  `$type(x) = "array"`.
+- **A single match is unwrapped to a bare object** by JSONata (`items[id = 4]`
+  is an object, not a one-element array). `map` still handles it (a non-array
+  `over` is treated as one item), but downstream expressions that expect an array
+  should use the `[ ... ]` wrapper, or a trailing `[]` on a path (`x.id[]`).
+- **`catch` is not a filter.** A caught item still runs first and then
+  yields the clause's `result`. Use it to tolerate failures, not to skip work.
+- **Tests mock per filtered item.** Under `test`, give `mocks.<map>` one entry
+  per item that survives the filter, in order (see `examples/flows/filter/tests`).
 
 ### Error taxonomy
 

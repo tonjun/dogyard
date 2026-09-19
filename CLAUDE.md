@@ -105,8 +105,8 @@ flows/<name>/
   .runs/<run_id>/trace.json
 ```
 
-Three runnable examples live under `examples/flows/` (`hello`, `research`,
-`flaky`); `research` mirrors the sample flow documented in `docs/spec.md`,
+Four runnable examples live under `examples/flows/` (`hello`, `research`,
+`flaky`, `filter`); `research` mirrors the sample flow documented in `docs/spec.md`,
 with its "tools" implemented as small Node scripts in `examples/bin/`.
 
 ## Notes for making changes

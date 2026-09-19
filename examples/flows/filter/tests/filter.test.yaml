@@ -1,0 +1,26 @@
+tests:
+  - name: only paid orders over the default threshold are shipped
+    mocks:
+      ship_each:                          # one mock per *filtered* item, in order
+        - { output: { id: 1, total: 120, shipped: true } }
+        - { output: { id: 4, total: 80, shipped: true } }
+    expect:
+      output: { shipped: 2, big: [1] }
+      path: [load, shippable, any_to_ship, ship_each, report]
+      skipped: [nothing_to_ship]
+      output_jsonata: "$count(trace.steps[name='ship_each'].items) = 2"
+
+  - name: a stricter threshold leaves one item to iterate
+    trigger: { min_total: 100 }
+    mocks:
+      ship_each:
+        - { output: { id: 1, total: 120, shipped: true } }
+    expect:
+      output: { shipped: 1, big: [1] }
+
+  - name: an empty filter skips the map entirely
+    trigger: { min_total: 1000 }
+    expect:                                # no ship_each mock needed: it never runs
+      output: { shipped: 0 }
+      path: [load, shippable, any_to_ship, nothing_to_ship]
+      skipped: [ship_each, report]

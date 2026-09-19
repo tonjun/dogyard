@@ -61,7 +61,7 @@ describe("validate / list / describe / graph", () => {
   it("lists flows and describes one", async () => {
     const r = await cli(["list", path.join(work, "examples"), "--json"]);
     expect(r.code).toBe(0);
-    expect(json(r.stdout).map((x: { name: string }) => x.name).sort()).toEqual(["flaky", "hello", "research-and-summarize"]);
+    expect(json(r.stdout).map((x: { name: string }) => x.name).sort()).toEqual(["filter", "flaky", "hello", "research-and-summarize"]);
     const d = await cli(["describe", research, "--json"]);
     expect(json(d.stdout).steps).toHaveLength(6);
   });

@@ -1,0 +1,69 @@
+# Iterate + filter: `map` has no per-item skip, so you filter the list first
+# (in `over`, or in a transform step) and filter/compact the results after.
+schema_version: 1
+name: filter
+version: 0.1.0
+description: Keep the paid orders over a threshold, ship each one, then report the big shipments.
+
+config:
+  default_timeout: 10s
+
+trigger_schema:
+  type: object
+  properties:
+    min_total: { type: number }
+
+steps:
+  load:
+    type: pass
+    input: >
+      {
+        "orders": [
+          { "id": 1, "status": "paid",     "total": 120 },
+          { "id": 2, "status": "refunded", "total": 300 },
+          { "id": 3, "status": "paid",     "total": 15 },
+          { "id": 4, "status": "paid",     "total": 80 }
+        ]
+      }
+
+  # Filter as its own step. Wrapping it in `[ ... ]` guarantees an array: zero
+  # matches give `[]` (not null) and one match stays a list (not a bare object).
+  shippable:
+    type: transform
+    needs: [load]
+    input: '[steps.load.output.orders[status = "paid" and total >= ($$.trigger.min_total ? $$.trigger.min_total : 50)]]'
+
+  # Nothing to ship -> skip the map (and everything after it) via a choice.
+  any_to_ship:
+    type: choice
+    needs: [shippable]
+    branches:
+      - when: "$count(steps.shippable.output) > 0"
+        next: ship_each
+    default: nothing_to_ship
+
+  # Only the filtered items are iterated; `index` counts the filtered list.
+  ship_each:
+    type: map
+    max_concurrency: 2
+    over: "steps.shippable.output"
+    step:
+      type: command
+      command: ["node", "-e", "const o = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(JSON.stringify({ id: o.id, total: o.total, shipped: true }))"]
+      input: '{ "id": item.id, "total": item.total, "position": index }'
+
+  # Filter the map's results too: the output holds one entry per item that ran.
+  report:
+    type: pass
+    needs: [ship_each]
+    input: >
+      {
+        "shipped": $count(steps.ship_each.output),
+        "big": steps.ship_each.output[total >= 100].id[]
+      }
+    terminal: success
+
+  nothing_to_ship:
+    type: pass
+    input: '{ "shipped": 0 }'
+    terminal: success
