@@ -26,7 +26,7 @@ export function registerInspect(program: Command): void {
         }
         throw err;
       }
-      const v = validateFlow(loaded.flow);
+      const v = validateFlow(loaded.flow, { dir: loaded.dir });
       if (flags.json) printJson({ ok: v.ok, file: loaded.file, errors: v.errors, warnings: v.warnings });
       else {
         const diag = formatDiagnostics(v);
@@ -66,9 +66,9 @@ export function registerInspect(program: Command): void {
         const step = loaded.flow.steps[name]!;
         const deps = [...(g.deps.get(name) ?? [])];
         let detail = "";
-        if (step.type === "command") detail = ` ${JSON.stringify(step.command)}`;
+        if (step.type === "command") detail = ` ${JSON.stringify(step.command)}${step.mock !== undefined ? " [mock]" : ""}`;
         if (step.type === "choice") detail = ` -> ${[...step.branches.map((b) => b.next), ...(step.default ? [`${step.default} (default)`] : [])].join(" | ")}`;
-        if (step.type === "map") detail = ` over ${step.over} (${step.step.type})`;
+        if (step.type === "map") detail = ` over ${step.over} (${step.step.type})${step.step.type === "command" && step.step.mock !== undefined ? " [mock]" : ""}`;
         lines.push(`    ${name.padEnd(20)} ${step.type.padEnd(9)}${step.terminal ? ` terminal:${step.terminal}` : ""}${deps.length ? ` needs: [${deps.join(", ")}]` : ""}${detail}`);
       }
       process.stdout.write(`${lines.join("\n")}\n`);
@@ -84,7 +84,7 @@ export function registerInspect(program: Command): void {
       const rows = found.map((dir) => {
         try {
           const loaded = loadFlow(dir);
-          const v = validateFlow(loaded.flow);
+          const v = validateFlow(loaded.flow, { dir: loaded.dir });
           return { dir, name: loaded.flow.name, version: loaded.flow.version, description: loaded.flow.description, steps: Object.keys(loaded.flow.steps).length, valid: v.ok };
         } catch (err) {
           return { dir, error: err instanceof LoadError ? err.message : String(err), valid: false };

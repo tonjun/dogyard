@@ -1,8 +1,10 @@
 import { buildGraph, type FlowGraph } from "./graph.js";
 import { checkExpressionSyntax } from "./expr.js";
+import { commandStepsByName, resolveStepMock } from "./executor/inline-mocks.js";
 import { LoadError, parseFlow } from "./loader.js";
 import type { FlowDefinition, Step } from "./schema/flow.js";
 import { SCHEMA_VERSION } from "./schema/flow.js";
+import type { MockEntry } from "./schema/mock.js";
 
 export interface Diagnostic {
   level: "error" | "warning";
@@ -33,7 +35,12 @@ export function validateRawFlow(raw: unknown, file?: string): ValidationResult {
   return validateFlow(flow);
 }
 
-export function validateFlow(flow: FlowDefinition): ValidationResult {
+export interface ValidateOptions {
+  /** Flow folder; needed to resolve and check `mock: <file>` references. */
+  dir?: string;
+}
+
+export function validateFlow(flow: FlowDefinition, opts: ValidateOptions = {}): ValidationResult {
   const errors: Diagnostic[] = [];
   const warnings: Diagnostic[] = [];
   const names = new Set(Object.keys(flow.steps));
@@ -75,6 +82,25 @@ export function validateFlow(flow: FlowDefinition): ValidationResult {
       checkStepCommon(step.step, `${name}.step`, warn);
     }
     if (step.type === "command" && step.command.length === 0) err(`command must not be empty`, name);
+  }
+
+  for (const { name, label, step } of commandStepsByName(flow)) {
+    if (step.mock === undefined) continue;
+    let entry: MockEntry | undefined;
+    if (typeof step.mock !== "string") entry = step.mock;
+    else if (opts.dir) {
+      try {
+        entry = resolveStepMock(opts.dir, name, step);
+      } catch (e) {
+        err(`mock file: ${e instanceof LoadError && e.issues.length ? `${e.message} (${e.issues.join("; ")})` : (e as Error).message}`, label);
+        continue;
+      }
+    }
+    if (entry === undefined) continue;
+    if (Array.isArray(entry) && label === name) err(`mock is a list of per-item results, which only applies to a map sub-step`, label);
+    const results = Array.isArray(entry) ? entry : [entry];
+    const failing = results.some((r) => "exit_code" in r && r.exit_code !== 0);
+    if (failing && !step.retry && !step.catch && !flow.steps[name]?.catch) warn(`mock has a nonzero exit_code but the step has no catch or retry, so the test run will fail here`, label);
   }
 
   const graph = buildGraph(flow);

@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import { errorMatches } from "../errors.js";
 import { evaluateExpression } from "../expr.js";
 import { MockRunner } from "../executor/command-runner.js";
+import { collectInlineMocks } from "../executor/inline-mocks.js";
 import { runFlow } from "../executor/run.js";
 import { LoadError, formatZodIssues, readYamlFile, type LoadedFlow } from "../loader.js";
 import { mocksFileSchema, testFileSchema, type Mocks, type TestCase } from "../schema/test.js";
@@ -83,7 +84,7 @@ export async function runTestCase(loaded: LoadedFlow, tc: TestCase, file = "<inl
   const failures: string[] = [];
   let trace: RunTrace | undefined;
   try {
-    const mocks = resolveMocks(tc, path.dirname(file) === "<inline>" ? loaded.dir : path.dirname(file));
+    const mocks = { ...collectInlineMocks(loaded), ...resolveMocks(tc, path.dirname(file) === "<inline>" ? loaded.dir : path.dirname(file)) };
     const result = await runFlow({ loaded, trigger: tc.trigger, runner: new MockRunner(mocks), persist: false });
     trace = result.trace;
     const exp = tc.expect;

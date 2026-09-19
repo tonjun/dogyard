@@ -73,7 +73,19 @@ export function parseFlow(raw: unknown, file = "<inline>"): FlowDefinition {
 }
 
 export function computeFlowHash(raw: unknown): string {
-  return createHash("sha256").update(stableStringify(raw)).digest("hex");
+  return createHash("sha256").update(stableStringify(withoutMocks(raw))).digest("hex");
+}
+
+/** `mock:` only affects test/eval, so editing one must not invalidate a run's resume hash. */
+function withoutMocks(raw: unknown): unknown {
+  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+  if (!isObj(raw) || !isObj(raw.steps)) return raw;
+  const strip = (step: unknown): unknown => {
+    if (!isObj(step)) return step;
+    const { mock: _mock, ...rest } = step;
+    return isObj(rest.step) ? { ...rest, step: strip(rest.step) } : rest;
+  };
+  return { ...raw, steps: Object.fromEntries(Object.entries(raw.steps).map(([k, v]) => [k, strip(v)])) };
 }
 
 function stableStringify(v: unknown): string {

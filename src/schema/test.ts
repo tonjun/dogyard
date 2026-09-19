@@ -1,24 +1,10 @@
 import { z } from "zod";
 import { errorPatternSchema } from "./flow.js";
+import { mocksSchema } from "./mock.js";
 
-/** A canned command result: either a parsed `output` or raw stdout/exit code. */
-export const mockResultSchema = z.union([
-  z.object({ output: z.unknown() }).strict(),
-  z
-    .object({
-      stdout: z.string().default(""),
-      stderr: z.string().default(""),
-      exit_code: z.number().int().default(0),
-    })
-    .strict(),
-]);
-export type MockResult = z.infer<typeof mockResultSchema>;
-
-/** Per step: one result, or an ordered array of per-item results for map sub-steps. */
-export const mocksSchema = z.record(z.string(), z.union([mockResultSchema, z.array(mockResultSchema)]));
-export type Mocks = z.infer<typeof mocksSchema>;
-
-export const mocksFileSchema = z.object({ mocks: mocksSchema }).strict();
+// The mock schemas live in ./mock.ts (flow.ts needs them too, and this file imports flow.ts).
+export { mockEntrySchema, mockResultSchema, mocksFileSchema, mocksSchema } from "./mock.js";
+export type { MockEntry, MockResult, Mocks } from "./mock.js";
 
 export const testCaseSchema = z
   .object({

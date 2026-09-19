@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ERROR_TYPES } from "../errors.js";
 import { isDuration } from "../duration.js";
+import { mockEntrySchema } from "./mock.js";
 
 export const SCHEMA_VERSION = 1;
 
@@ -62,6 +63,11 @@ export const commandStepSchema = z
     output_mode: z.enum(OUTPUT_MODES).default("auto"),
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
+    /**
+     * Canned result used by `test`/`eval` (never by `run`). Inline, or a path to a
+     * YAML/JSON file holding one; an array gives per-item results for a map sub-step.
+     */
+    mock: z.union([z.string(), mockEntrySchema]).optional(),
     ...commonStepFields,
   })
   .strict();

@@ -169,6 +169,7 @@ Core capabilities the CLI needs to expose (exact command names/flags TBD in plan
 
 ### 3.5 Testing
 - Fixture-based tests per flow: given an input and mocked command output (keyed by step), assert on the output and/or on which path through the flow was taken (important for validating branching logic without depending on real command execution).
+- A command step may declare its own `mock` (inline, or a path to a file resolved like the step's working directory). It is a default for tests and evals only — a real run ignores it — and a test's own mocks take precedence. A command step with no mock from any source remains a hard failure under test.
 - A way to record real command output from an actual run and save it as reusable mocks for tests.
 - Step-level tests (`steps/<step>/tests/`): run one command step in isolation against a supplied context (trigger, upstream outputs, map item), asserting on its resolved input/argv, output, error type and attempt count. Each case declares whether the command is mocked or run for real. Executed by the same step handlers the run loop uses.
 

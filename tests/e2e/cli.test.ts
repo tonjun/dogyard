@@ -76,6 +76,7 @@ describe("validate / list / describe / graph", () => {
 
 describe("run", () => {
   it("runs the hello flow for real and writes a trace", async () => {
+    // hello's steps declare `mock:` (HELLO / 5); `run` must ignore them and execute the commands.
     const r = await cli(["run", hello, "--query", "hello world"]);
     expect(r.code, r.stderr).toBe(0);
     expect(json(r.stdout)).toEqual({ kind: "long", value: "HELLO WORLD", length: 11 });

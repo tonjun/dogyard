@@ -121,5 +121,8 @@ with its "tools" implemented as small Node scripts in `examples/bin/`.
   Relative paths in `command` resolve from that cwd, never the process cwd.
 - Every `command` step needs a mock when run under `test`/`--mocks`; a
   missing mock is a hard failure by design (keeps tests deterministic).
+  A step's own `mock:` field (inline or a file path; `executor/inline-mocks.ts`)
+  counts as a mock under `test`/`eval` only, layered beneath test/`--mocks`
+  mocks. `run` never uses it, and `computeFlowHash` ignores it.
   Step tests follow the same principle: a case must say `mock`, `mocks_file`
   or `real: true` explicitly.

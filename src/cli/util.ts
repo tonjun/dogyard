@@ -26,7 +26,7 @@ export function loadValidFlow(flowPath: string, opts: LoadOptions = {}): LoadedF
     if (err instanceof LoadError) fail([err.message, ...err.issues.map((i) => `  - ${i}`)].join("\n"));
     throw err;
   }
-  const v = validateFlow(loaded.flow);
+  const v = validateFlow(loaded.flow, { dir: loaded.dir });
   if (!v.ok) fail(`Flow ${loaded.file} is invalid:\n${formatDiagnostics(v)}`);
   return loaded;
 }

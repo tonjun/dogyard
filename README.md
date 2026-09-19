@@ -111,7 +111,7 @@ steps:
 
 | Type | Fields | Output |
 |---|---|---|
-| `command` | `command` (argv array), `input`, `input_mode` (`stdin` default, `args`, `env`), `output_mode` (`auto` default, `json`, `text`, `lines`), `cwd`, `env` | Parsed stdout |
+| `command` | `command` (argv array), `input`, `input_mode` (`stdin` default, `args`, `env`), `output_mode` (`auto` default, `json`, `text`, `lines`), `cwd`, `env`, `mock` | Parsed stdout |
 | `transform` / `pass` | `input` | The resolved `input` (`{}` if absent) |
 | `choice` | `branches: [{when, next}]`, `default` | `{ selected, matched }`; routes execution |
 | `map` | `over`, `step`, `max_concurrency` | Ordered array of per-item outputs |
@@ -300,6 +300,41 @@ tests:
 A mock is either `{ output: <json> }` or `{ stdout, stderr, exit_code }`. Every
 command step needs a mock in tests; a missing one fails the run so tests stay
 deterministic. Create mocks from a real run with `run ... --record mocks/x.yaml`.
+
+### Mocks on the step
+
+A command step can carry its own mock, so tests don't have to repeat it:
+
+```yaml
+steps:
+  shout:
+    type: command
+    command: [node, shout.js]
+    mock: { output: { shouted: "HELLO" } }   # inline, same shape as a test mock
+  count:
+    type: command
+    command: [node, count.js]
+    mock: mock.yaml                          # or a path to a YAML/JSON file holding one
+  summarize_each:
+    type: map
+    over: steps.fetch.output.results
+    step:
+      type: command
+      command: [llm-run]
+      mock: [{ output: 1 }, { output: 2 }]   # map sub-step: one entry per item
+```
+
+- `mock` is used by `test` and `eval` only. `run` ignores it and executes the command.
+- A file path resolves like the command's `cwd`: `steps/<step>/` when that folder exists,
+  else the flow folder (an explicit `cwd` overrides both). The file holds `{ output }`,
+  `{ stdout, stderr, exit_code }` or, for a map sub-step, a list of them.
+- Precedence, highest first: a test case's `mocks`, then `mocks_file` / `--mocks`, then
+  the step's `mock`. A command step with no mock anywhere still fails the run.
+- `eval` layers step mocks under `--mocks` or the eval config's `mocks`/`mocks_file`.
+  With neither, an eval keeps running commands for real.
+- Step tests (`steps/<step>/tests`) still declare `mock`, `mocks_file` or `real: true` themselves.
+- `validate` checks that a mock file exists and parses. Editing a `mock` does not change
+  the flow hash, so it never blocks `--resume`.
 
 ## Step tests (`steps/<step>/tests/*.test.yaml`)
 

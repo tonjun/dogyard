@@ -17,11 +17,13 @@ steps:
     type: command
     command: ["node", "-e", "process.stdout.write(JSON.stringify({ shouted: JSON.parse(require('fs').readFileSync(0,'utf8')).text.toUpperCase() }))"]
     input: '{ "text": trigger.query }'
+    mock: { output: { shouted: "HELLO" } }   # used by `dogyard test`/`eval`, never by `run`
 
   count:
     type: command
     command: ["node", "-e", "process.stdout.write(String(process.argv[1].length))", "=trigger.query"]
     output_mode: json
+    mock: mock.yaml                          # file, resolved from steps/count/
 
   route:
     type: choice

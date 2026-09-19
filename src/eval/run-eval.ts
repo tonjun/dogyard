@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import pLimit from "p-limit";
 import { MockRunner, RealRunner, type CommandRunner } from "../executor/command-runner.js";
+import { collectInlineMocks } from "../executor/inline-mocks.js";
 import { runFlow } from "../executor/run.js";
 import { LoadError, formatZodIssues, readYamlFile, type LoadedFlow } from "../loader.js";
+import type { Mocks } from "../schema/mock.js";
 import { evalConfigSchema, evalDatasetSchema, type EvalConfig, type EvalExample, type Grader } from "../schema/eval.js";
 import { resolveMocks } from "../testing/run-tests.js";
 import type { RunTrace } from "../trace.js";
@@ -84,7 +86,7 @@ export async function runEval(loaded: LoadedFlow, opts: RunEvalOptions = {}): Pr
   let examples = loadDataset(datasetFile);
   if (opts.limit) examples = examples.slice(0, opts.limit);
 
-  const runnerFactory = evalRunnerFactory(config, cfgDir, opts.mocksFile);
+  const runnerFactory = evalRunnerFactory(config, cfgDir, opts.mocksFile, () => collectInlineMocks(loaded));
 
   const started_at = new Date().toISOString();
   const limit = pLimit(opts.concurrency ?? config.concurrency);
@@ -107,14 +109,18 @@ export async function runEval(loaded: LoadedFlow, opts: RunEvalOptions = {}): Pr
   };
 }
 
-/** Choose the runner for an eval: explicit mocks file > config mocks > real execution. */
-export function evalRunnerFactory(config: EvalConfig, cfgDir: string, mocksFile?: string): () => CommandRunner {
+/**
+ * Choose the runner for an eval: explicit mocks file > config mocks > real execution.
+ * The flow's own `mock:` entries (`inline`, read only when mocking) only fill gaps under explicit mocks; on
+ * their own they do not switch an eval away from real execution.
+ */
+export function evalRunnerFactory(config: EvalConfig, cfgDir: string, mocksFile?: string, inline: () => Mocks = () => ({})): () => CommandRunner {
   if (mocksFile) {
-    const mocks = resolveMocks({ mocks_file: mocksFile }, process.cwd());
+    const mocks = { ...inline(), ...resolveMocks({ mocks_file: mocksFile }, process.cwd()) };
     return () => new MockRunner(mocks);
   }
   if (config.mocks || config.mocks_file) {
-    const mocks = resolveMocks(config, cfgDir);
+    const mocks = { ...inline(), ...resolveMocks(config, cfgDir) };
     return () => new MockRunner(mocks);
   }
   const real = new RealRunner();

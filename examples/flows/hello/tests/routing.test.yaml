@@ -1,9 +1,6 @@
 tests:
-  - name: long queries take the long branch
+  - name: long queries take the long branch (uses the mocks declared on the steps)
     trigger: { query: "hello" }
-    mocks:
-      shout: { output: { shouted: "HELLO" } }
-      count: { stdout: "5", exit_code: 0 }
     expect:
       output: { kind: long, value: HELLO, length: 5 }
       path: [shout, count, route, long]

@@ -1,6 +1,7 @@
 import path from "node:path";
 import pLimit from "p-limit";
 import type { CommandRunner } from "../executor/command-runner.js";
+import { collectInlineMocks } from "../executor/inline-mocks.js";
 import { resolveRunnableStep, runStep, type StepRunResult } from "../executor/run-step.js";
 import { LoadError, formatZodIssues, type LoadedFlow } from "../loader.js";
 import type { EvalConfig } from "../schema/eval.js";
@@ -51,7 +52,7 @@ export async function runStepEval(loaded: LoadedFlow, step: string, opts: RunSte
   const datasetFile = opts.datasetFile ? path.resolve(opts.datasetFile) : path.resolve(cfgDir, config.dataset);
   let examples = loadStepDataset(datasetFile);
   if (opts.limit) examples = examples.slice(0, opts.limit);
-  const runnerFactory = evalRunnerFactory(config, cfgDir, opts.mocksFile);
+  const runnerFactory = evalRunnerFactory(config, cfgDir, opts.mocksFile, () => collectInlineMocks(loaded));
 
   const started_at = new Date().toISOString();
   const limit = pLimit(opts.concurrency ?? config.concurrency);
