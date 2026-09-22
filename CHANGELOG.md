@@ -6,10 +6,16 @@ the flow schema may change between minor versions.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-22
+
+First public release.
+
 ### Added
 - MIT license, contributing guide, code of conduct, security policy and
   `docs/security.md`.
-- GitHub Actions CI and release workflows, issue and pull request templates.
+- GitHub Actions CI (Node 20, 22 and 24 on Linux, macOS and Windows, plus a
+  packed-tarball smoke test), a tag-triggered release workflow, and issue and
+  pull request templates.
 - Package metadata; the bundled `examples/` now ship in the npm package.
 
 ### Changed
@@ -23,8 +29,11 @@ the flow schema may change between minor versions.
 - `dogyard test` output prints step test file paths with `/` on every platform.
 - Test suite is portable to Windows (spawns tsx via node; native-path assertions).
 
-## [0.2.0]
+## 0.2.0
 
 Initial development version: YAML DAG flows, command/transform/pass/choice/map
 steps, JSONata data flow, retry/catch, traces and resume, fixture tests, evals,
 per-step tests and evals, and step-level `mock:`.
+
+[Unreleased]: https://github.com/tonjun/dogyard/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/tonjun/dogyard/releases/tag/v0.3.0
