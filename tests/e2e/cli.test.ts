@@ -25,6 +25,8 @@ function cli(args: string[], opts: { cwd?: string; signalAfterMs?: number; timeo
 }
 
 const json = (s: string) => JSON.parse(s);
+/** CLI output uses native path separators; normalize before matching path regexes. */
+const slash = (s: string) => s.replaceAll("\\", "/");
 
 /** Copy examples into a temp dir so traces/reports don't pollute the repo. */
 let work: string;
@@ -167,7 +169,7 @@ describe("test / eval", () => {
     expect(none.stdout).toMatch(/4 passed, 0 failed/);
     const missing = await cli(["test", hello, "--step", "nope"]);
     expect(missing.code).toBe(0);
-    expect(missing.stderr).toMatch(/No tests found in .*steps\/nope\/tests/);
+    expect(slash(missing.stderr)).toMatch(/No tests found in .*steps\/nope\/tests/);
     expect((await cli(["test", hello, "--step", "count", "--no-steps"])).code).toBe(1);
   });
   it("reports a step folder that does not match a step", async () => {
@@ -192,7 +194,7 @@ describe("test / eval", () => {
     expect(j.step).toBe("fetch_sources");
     expect(j.pass_rate).toBe(1);
     expect(j.examples[0].result.argv).toEqual(["node", "../../../../bin/search-cli.cjs", "--json"]);
-    expect(r.stderr).toMatch(/Report: .*steps\/fetch_sources\/evals\/reports\//);
+    expect(slash(r.stderr)).toMatch(/Report: .*steps\/fetch_sources\/evals\/reports\//);
     expect(readdirSync(path.join(research, "steps/fetch_sources/evals/reports"))).toHaveLength(1);
     const m = await cli(["eval", flaky, "--step", "wait_for_marker", "--no-report"]);
     expect(m.code, m.stdout).toBe(0);
@@ -250,7 +252,7 @@ describe("test / eval", () => {
     rmSync(path.join(dir, "steps"), { recursive: true, force: true });
     const r = await cli(["new-step", dir, "summarize_each"]);
     expect(r.code, r.stderr).toBe(0);
-    expect(r.stderr).toMatch(/steps\/summarize_each\/tests\/basic.test.yaml/);
+    expect(slash(r.stderr)).toMatch(/steps\/summarize_each\/tests\/basic.test.yaml/);
     const yaml = readFileSync(path.join(dir, "steps/summarize_each/tests/basic.test.yaml"), "utf8");
     expect(yaml).toMatch(/fetch_sources: null/);
     expect(yaml).toMatch(/item: null/);
@@ -326,7 +328,8 @@ describe("resume", () => {
     const forced = await cli(["resume", dir, runId, "-q", "--force"]);
     expect(forced.code, forced.stderr).toBe(0);
   });
-  it("checkpoints on SIGINT mid-map and resumes only the remaining items", async () => {
+  // Windows has no POSIX signals: child.kill("SIGINT") terminates the process outright, so there is no graceful checkpoint or exit code 130.
+  it.skipIf(process.platform === "win32")("checkpoints on SIGINT mid-map and resumes only the remaining items", async () => {
     const dir = path.join(work, "examples/flows/flaky-sigint");
     cpSync(flaky, dir, { recursive: true });
     rmSync(path.join(dir, ".runs"), { recursive: true, force: true });
