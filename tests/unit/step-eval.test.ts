@@ -7,6 +7,7 @@ import { loadStepDataset, runStepEval } from "../../src/eval/run-step-eval.js";
 import { loadFlowFromObject } from "../../src/loader.js";
 
 const node = process.execPath;
+const slashes = (p: string) => p.split(path.sep).join("/");
 const flowObj = {
   name: "se",
   version: "0.1.0",
@@ -42,7 +43,7 @@ describe("runStepEval", () => {
     expect(wrong.grades.map((g) => g.passed)).toEqual([false, true]);
     expect(wrong.result.argv?.[0]).toBe(node);
     expect(report.graders.map((g) => [g.name, g.passed])).toEqual([["exact", 1], ["via-step", 2]]);
-    expect(defaultReportFile(dir, report)).toMatch(/steps\/double\/evals\/reports\/\d+T\d+Z\.json$/);
+    expect(slashes(defaultReportFile(dir, report))).toMatch(/steps\/double\/evals\/reports\/\d+T\d+Z\.json$/);
     expect(formatReport(report, { verbose: true })).toMatch(/Eval: se@0.1.0 step double[\s\S]*context: \{"trigger":\{"n":3\},"steps":\{\}\}/);
   });
 
@@ -66,6 +67,6 @@ describe("runStepEval", () => {
     expect(r.total).toBe(1);
     expect(r.examples[0]!.id).toBe("#1");
     expect(r.examples[0]!.result.exit_code).toBe(0);
-    await expect(runStepEval(loaded, "each")).rejects.toThrow(/No eval.yaml found in .*steps\/each\/evals/);
+    await expect(runStepEval(loaded, "each")).rejects.toSatisfy((e: Error) => /No eval.yaml found in .*steps\/each\/evals/.test(slashes(e.message)));
   });
 });

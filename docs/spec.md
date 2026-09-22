@@ -1,8 +1,11 @@
-# Project Spec: `DogYard` — CLI-First Workflow Engine
+# DogYard — Design and Rationale
 
-Status: Draft v0.2 (high-level; v0.2 adds step-granular resume, see §1.3/§3.7)
-Owner: (you)
-Target use: Input to Claude Code plan mode — this defines *what* to build and *why*; implementation-level design (exact schemas, module layout, algorithms) is left for plan mode to work out.
+Status: pre-1.0 (v0.2 adds step-granular resume, see §1.3/§3.7)
+
+This document explains *what* DogYard is and *why* it is shaped the way it is,
+including its non-goals. It is intentionally high-level. For exact syntax and
+behavior see the [README](../README.md); the Zod schemas in `src/schema/` are
+the source of truth for what is valid in each YAML file.
 
 ---
 
@@ -58,7 +61,7 @@ Existing workflow engines (AWS Step Functions, n8n, Temporal) are cloud-locked, 
 
 **Rationale summary (Step Functions vs. GitHub Actions as a pattern):** keep ASL's Retry/Catch and explicit multi-way Choice; drop ASL's flat state+`next` graph and its 4-stage data-selection pipeline in favor of GitHub Actions' named-step DAG (`needs:`) and addressable step outputs, since this engine runs single-process, non-durable, and locally (§1.3) — the machinery ASL needs for durable/async/opaque-service execution has no job to do here.
 
-### 3.1.1 Sample flow definition (illustrative — exact keys/schema TBD in plan mode)
+### 3.1.1 Sample flow definition (illustrative — see the README and `src/schema/` for the exact schema)
 
 ```yaml
 # flows/research-and-summarize/flow.yaml
@@ -158,7 +161,7 @@ Notes on the sample:
 - This primitive is intentionally generic — an LLM runner, a build tool, a linter, a data-fetch script, etc. are all just "a command" from the engine's point of view. No specific external tool is special-cased in v1.
 
 ### 3.4 CLI surface (of the engine itself)
-Core capabilities the CLI needs to expose (exact command names/flags TBD in plan mode):
+Core capabilities the CLI needs to expose (see the README CLI reference for exact commands and flags):
 - Scaffold a new flow.
 - Validate a flow definition (structural + reference checks).
 - Run a flow once against an input (with options for tracing and for mocking/replaying command output instead of executing for real).
@@ -220,13 +223,11 @@ Not built in v1, but v1 should avoid decisions that would block it later:
 
 ---
 
-## 8. Open Questions (for plan mode to resolve)
+## 8. Design decisions (formerly open questions)
 
-1. How exactly is a CLI command step's input passed to the subprocess (stdin vs. args vs. env), and is this configurable per step or fixed engine-wide?
-2. Parallel branch result shape: ordered array vs. named-by-branch-key object.
-3. Should command steps support templated argument lists (e.g. JSONata-resolved values interpolated into an argv array), or just a fixed command plus JSON-over-stdin?
-4. Should there be engine-level guardrails for concurrency limits and/or timeouts per run, beyond per-step settings?
-5. Where does shared/project-level config live relative to individual flow folders, and how is it discovered?
-6. How should an LLM runner (or any other specific tool) be layered on top of this generic CLI-command primitive later, without special-casing it in the engine — e.g. is it just a flow-author convention (a particular command + prompt-file argument pattern), or does it warrant its own step "resource type" on top of the generic command step?
-
----
+1. **Command input:** configurable per step via `input_mode`: `stdin` (default, JSON), `args` (one JSON argument) or `env` (`WF_INPUT` plus `WF_INPUT_<KEY>`).
+2. **Parallel results:** there is no separate parallel step. Concurrency comes from the DAG; a `map` step returns an ordered array of per-item outputs, and a fan-in step reads each upstream output by name.
+3. **Templated argv:** supported. Any `command` entry starting with `=` is a JSONata expression; arrays expand to several arguments and `null`/`undefined` drops the argument. No shell is involved.
+4. **Guardrails:** `max_concurrency` and `run_timeout` at the flow level, plus `timeout` and `retry` per step.
+5. **Project-level config:** an optional `workflows.yaml` found by walking up from the flow folder; flows inherit its `config` unless they override a key.
+6. **LLM runners:** a flow-author convention, not an engine feature. An LLM is just a command (see `examples/bin/llm-run.cjs`).

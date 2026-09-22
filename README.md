@@ -1,36 +1,92 @@
 # DogYard
 
+[![CI](https://github.com/tonjun/dogyard/actions/workflows/ci.yml/badge.svg)](https://github.com/tonjun/dogyard/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/dogyard.svg)](https://www.npmjs.com/package/dogyard)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A local-first, CLI-first workflow engine. Flows are YAML DAGs of named steps
 (GitHub Actions style `needs:`), data moves between steps through addressable
 outputs (`steps.<name>.output`) selected with [JSONata](https://jsonata.org),
 and the core step primitive is **running a CLI command**. Everything works from
 the terminal against plain files: no server, no UI, no cloud.
 
+Use it to glue together any CLI tools (LLM runners, scrapers, scripts) into a
+pipeline that you can **validate, run, resume, test with mocks, and score with
+evals**, all from the command line and all checked into git.
+
+> **Status: pre-1.0.** The flow schema (`schema_version: 1`) may still change
+> between minor versions. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Why DogYard
+
+| | DogYard | Make / shell scripts | GitHub Actions | n8n / Step Functions / Temporal |
+|---|---|---|---|---|
+| Runs locally from a terminal | yes | yes | no (needs CI) | server or cloud |
+| Typed JSON data between steps | yes | no (files/strings) | limited | yes |
+| Fan-out (`map`), branching (`choice`), retry/catch | yes | manual | partial | yes |
+| Fixture tests with mocked commands | built in | no | no | varies |
+| Dataset evals with graders | built in | no | no | no |
+| Resume a failed run from its trace | yes | no | re-run job | yes |
+| Infrastructure to run | none | none | hosted runners | server / account |
+
+DogYard is deliberately not durable-execution infrastructure: a run lives in a
+single CLI process, and there is no scheduler, UI or hosted mode (use cron).
+See [docs/spec.md](docs/spec.md) for the design rationale and non-goals.
+
 ## Install
 
+Requires Node.js 20 or newer.
+
 ```bash
-npm install
-npm run build       # compiles to dist/, exposes the `dogyard` bin
-npm test            # unit + end-to-end tests
+npm install -g dogyard      # or run without installing: npx dogyard --help
+dogyard --version
 ```
 
-During development run the CLI without building: `npm run dev <command> ...`
-(alias for `tsx src/cli/index.ts`).
+The package ships four runnable examples (`hello`, `research`, `flaky`,
+`filter`). Find them with:
+
+```bash
+ls "$(npm root -g)/dogyard/examples/flows"
+```
 
 ## Quick start
 
 ```bash
-npm run dev new my-flow --dir flows           # scaffold flows/my-flow/
-npm run dev validate flows/my-flow
-npm run dev run flows/my-flow --query "hello"
-npm run dev test flows/my-flow                # fixture tests with mocked commands
-npm run dev eval flows/my-flow                # dataset + graders -> scored report
-npm run dev graph flows/my-flow --format mermaid
+dogyard new my-flow --dir flows           # scaffold flows/my-flow/
+dogyard validate flows/my-flow
+dogyard run flows/my-flow --query "hello"
+dogyard test flows/my-flow                # fixture tests with mocked commands
+dogyard eval flows/my-flow                # dataset + graders -> scored report
+dogyard graph flows/my-flow --format mermaid
 ```
 
-Four runnable examples live under `examples/flows/` (`hello`, `research`, `flaky`, `filter`).
+Or try a bundled example (copy it somewhere writable first, since runs write
+`.runs/` traces next to the flow):
+
+```bash
+cp -R "$(npm root -g)/dogyard/examples" ./dogyard-examples
+dogyard run dogyard-examples/flows/hello --query "hello"
+dogyard test dogyard-examples/flows/research
+```
+
 The `research` flow mirrors the sample in `docs/spec.md`; its "tools" are tiny
 Node scripts in `examples/bin/`.
+
+> **Security:** a flow is code. Running a flow executes the commands it names
+> with your user's permissions and environment. Only run flows you trust. See
+> [docs/security.md](docs/security.md).
+
+## Development
+
+```bash
+git clone https://github.com/tonjun/dogyard.git && cd dogyard
+npm ci
+npm run build       # compiles to dist/, exposes the `dogyard` bin
+npm test            # unit + end-to-end tests
+npm run dev <command> ...   # run the CLI from source (tsx src/cli/index.ts)
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Concepts
 
@@ -300,6 +356,8 @@ tests:
 A mock is either `{ output: <json> }` or `{ stdout, stderr, exit_code }`. Every
 command step needs a mock in tests; a missing one fails the run so tests stay
 deterministic. Create mocks from a real run with `run ... --record mocks/x.yaml`.
+`path` lists steps in completion order, so steps that run in parallel can appear in either
+order; assert on `output_jsonata` (e.g. over `trace.steps`) when a flow has independent branches.
 
 ### Mocks on the step
 

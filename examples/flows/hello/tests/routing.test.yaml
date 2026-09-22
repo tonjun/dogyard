@@ -3,7 +3,8 @@ tests:
     trigger: { query: "hello" }
     expect:
       output: { kind: long, value: HELLO, length: 5 }
-      path: [shout, count, route, long]
+      # shout and count run in parallel, so their completion order is not deterministic: assert the set, not `path`.
+      output_jsonata: "$sort(trace.steps[status = 'succeeded'].name) = ['count', 'long', 'route', 'shout']"
       skipped: [short]
 
   - name: short queries take the short branch

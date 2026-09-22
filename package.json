@@ -1,7 +1,29 @@
 {
   "name": "dogyard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first, CLI-first workflow engine: YAML DAG flows of CLI command steps with JSONata data flow.",
+  "keywords": [
+    "workflow",
+    "workflow-engine",
+    "dag",
+    "cli",
+    "yaml",
+    "jsonata",
+    "orchestration",
+    "pipeline",
+    "llm",
+    "eval"
+  ],
+  "license": "MIT",
+  "author": "Antonio Banaag II",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tonjun/dogyard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tonjun/dogyard/issues"
+  },
+  "homepage": "https://github.com/tonjun/dogyard#readme",
   "type": "module",
   "bin": {
     "dogyard": "dist/cli/index.js"
@@ -9,7 +31,13 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "examples",
+    "!**/.runs",
+    "!**/evals/reports",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20"
@@ -19,7 +47,8 @@
     "dev": "tsx src/cli/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "ajv": "^8.20.0",
@@ -34,5 +63,8 @@
     "tsx": "^4.23.13",
     "typescript": "^5.9.0",
     "vitest": "^5.0.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

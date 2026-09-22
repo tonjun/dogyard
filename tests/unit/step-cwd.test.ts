@@ -36,7 +36,9 @@ describe("command step cwd", () => {
     expect(resolveStepCwd(dir, "owned", {})).toBe(path.join(dir, "steps", "owned"));
     expect(resolveStepCwd(dir, "orphan", {})).toBe(dir);
     expect(resolveStepCwd(dir, "owned", { cwd: "sub" })).toBe(path.join(dir, "sub"));
-    expect(resolveStepCwd(dir, "owned", { cwd: "/abs" })).toBe("/abs");
+    // A native absolute path: "/abs" is drive-relative on Windows, so derive the root from dir.
+    const abs = path.join(path.parse(dir).root, "abs");
+    expect(resolveStepCwd(dir, "owned", { cwd: abs })).toBe(abs);
   });
 
   it("runFlow spawns each command in its step folder, including map sub-steps", async () => {
