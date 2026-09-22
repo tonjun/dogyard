@@ -6,14 +6,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const ROOT = path.resolve(__dirname, "../..");
 const CLI = path.join(ROOT, "src/cli/index.ts");
-const TSX = path.join(ROOT, "node_modules/.bin/tsx");
+// Run tsx via node rather than the .bin shim, which is a .cmd (not directly spawnable) on Windows.
+const TSX_CLI = path.join(ROOT, "node_modules/tsx/dist/cli.mjs");
 const EXAMPLES = path.join(ROOT, "examples");
 
 interface Exec { code: number | null; stdout: string; stderr: string; }
 
 function cli(args: string[], opts: { cwd?: string; signalAfterMs?: number; timeout?: number } = {}): Promise<Exec> {
   return new Promise((resolve) => {
-    const child = spawn(TSX, [CLI, ...args], { cwd: opts.cwd ?? ROOT, env: { ...process.env, FORCE_COLOR: "0" } });
+    const child = spawn(process.execPath, [TSX_CLI, CLI, ...args], { cwd: opts.cwd ?? ROOT, env: { ...process.env, FORCE_COLOR: "0" } });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));

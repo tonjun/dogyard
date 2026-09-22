@@ -36,7 +36,7 @@ describe("command step cwd", () => {
     expect(resolveStepCwd(dir, "owned", {})).toBe(path.join(dir, "steps", "owned"));
     expect(resolveStepCwd(dir, "orphan", {})).toBe(dir);
     expect(resolveStepCwd(dir, "owned", { cwd: "sub" })).toBe(path.join(dir, "sub"));
-    expect(resolveStepCwd(dir, "owned", { cwd: "/abs" })).toBe("/abs");
+    expect(resolveStepCwd(dir, "owned", { cwd: "/abs" })).toBe(path.resolve("/abs"));
   });
 
   it("runFlow spawns each command in its step folder, including map sub-steps", async () => {

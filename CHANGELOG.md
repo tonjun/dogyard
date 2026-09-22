@@ -20,6 +20,8 @@ the flow schema may change between minor versions.
 ### Fixed
 - The `hello` example's routing test no longer depends on the completion order
   of two parallel steps (it failed intermittently).
+- `dogyard test` output prints step test file paths with `/` on every platform.
+- Test suite is portable to Windows (spawns tsx via node; native-path assertions).
 
 ## [0.2.0]
 
