@@ -193,7 +193,7 @@ Core capabilities the CLI needs to expose (see the README CLI reference for exac
 - **Sequential** step-to-step execution (baseline): expressed as a chain of `needs:` dependencies.
 - **Choice/branching**: an explicit `choice` step type, routing based on JSONata conditions evaluated against the execution context.
 - **Parallel fan-out/fan-in**: not a distinct step type — falls out of the DAG itself. Steps with no dependency path between them run concurrently; a step naming multiple steps in `needs:` is the join/fan-in point, collecting each upstream step's output by name (see §3.1.1 sample).
-- **Iterate/Map**: a `map` step type — run a sub-step once per item in a collection, with bounded concurrency, collecting results in order.
+- **Iterate/Map**: a `map` step type — run a sub-step once per item in a collection, with bounded concurrency, collecting results in order. Timeouts bound each item's command (per attempt), not the whole map: the sub-step's `timeout` wins, then the map step's `timeout`, then `config.default_timeout`; `run_timeout` is the only wall-clock cap across all items.
 - **Retry/Catch**: per-step retry policy on specific error types, and fallback routing on unhandled errors.
 
 ---
