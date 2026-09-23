@@ -158,6 +158,7 @@ Notes on the sample:
 - A step can execute an arbitrary external CLI command/binary as its unit of work.
 - The flow definition specifies: the command/binary to run, how the step's resolved JSON input is passed to it (e.g. stdin, args, env), and how its output is captured back into the context (parsed as JSON where possible, with a raw-text fallback).
 - Non-zero exit codes / timeouts map to catchable, retryable errors within the flow, same as any other step failure.
+- A timed-out or interrupted command is killed along with its descendants: it runs in its own process group (POSIX), which is sent SIGTERM and then SIGKILL after a 2s grace, so a wrapper script's subprocesses cannot delay the error or leak.
 - This primitive is intentionally generic — an LLM runner, a build tool, a linter, a data-fetch script, etc. are all just "a command" from the engine's point of view. No specific external tool is special-cased in v1.
 
 ### 3.4 CLI surface (of the engine itself)
@@ -193,7 +194,7 @@ Core capabilities the CLI needs to expose (see the README CLI reference for exac
 - **Sequential** step-to-step execution (baseline): expressed as a chain of `needs:` dependencies.
 - **Choice/branching**: an explicit `choice` step type, routing based on JSONata conditions evaluated against the execution context.
 - **Parallel fan-out/fan-in**: not a distinct step type — falls out of the DAG itself. Steps with no dependency path between them run concurrently; a step naming multiple steps in `needs:` is the join/fan-in point, collecting each upstream step's output by name (see §3.1.1 sample).
-- **Iterate/Map**: a `map` step type — run a sub-step once per item in a collection, with bounded concurrency, collecting results in order.
+- **Iterate/Map**: a `map` step type — run a sub-step once per item in a collection, with bounded concurrency, collecting results in order. Timeouts bound each item's command (per attempt), not the whole map: the sub-step's `timeout` wins, then the map step's `timeout`, then `config.default_timeout`; `run_timeout` is the only wall-clock cap across all items.
 - **Retry/Catch**: per-step retry policy on specific error types, and fallback routing on unhandled errors.
 
 ---

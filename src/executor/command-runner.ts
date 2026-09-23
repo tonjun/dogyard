@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { FlowError } from "../errors.js";
 import type { MockResult, Mocks } from "../schema/test.js";
 
@@ -44,7 +44,8 @@ export class RealRunner implements CommandRunner {
       const [cmd, ...args] = req.argv;
       if (!cmd) return reject(new FlowError("spawn_error", "Empty command", { step: req.step }));
 
-      const spawnOpts: Parameters<typeof spawn>[2] = { env: { ...process.env, ...req.env }, stdio: ["pipe", "pipe", "pipe"] };
+      // Own process group (POSIX) so timeout/abort can signal the command's descendants, not just the direct child.
+      const spawnOpts: Parameters<typeof spawn>[2] = { env: { ...process.env, ...req.env }, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" };
       if (req.cwd) spawnOpts.cwd = req.cwd;
       const child = spawn(cmd, args, spawnOpts);
       let stdout = "";
@@ -52,19 +53,31 @@ export class RealRunner implements CommandRunner {
       let timedOut = false;
       let aborted = false;
       let settled = false;
+      let exited = false;
+      let killIssued = false;
+      let destroyTimer: NodeJS.Timeout | undefined;
 
       const timer = req.timeout !== undefined && req.timeout > 0 ? setTimeout(() => { timedOut = true; kill(); }, req.timeout) : undefined;
       const onAbort = () => { aborted = true; kill(); };
       req.signal?.addEventListener("abort", onAbort, { once: true });
 
+      // A descendant that escaped the group (or outlived it) can hold the stdio pipes open and delay `close`
+      // indefinitely; once the child has exited after a kill, stop waiting for them.
+      const scheduleDestroy = () => {
+        if (destroyTimer || settled) return;
+        destroyTimer = setTimeout(() => { child.stdout?.destroy(); child.stderr?.destroy(); }, 500);
+        destroyTimer.unref();
+      };
       const kill = () => {
-        if (child.exitCode === null && !child.killed) {
-          child.kill("SIGTERM");
-          setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, 2000).unref();
-        }
+        if (killIssued) return;
+        killIssued = true;
+        signalTree(child, "SIGTERM");
+        setTimeout(() => signalTree(child, "SIGKILL"), 2000).unref();
+        if (exited) scheduleDestroy();
       };
       const cleanup = () => {
         if (timer) clearTimeout(timer);
+        if (destroyTimer) clearTimeout(destroyTimer);
         req.signal?.removeEventListener("abort", onAbort);
       };
       const fail = (err: FlowError) => { if (settled) return; settled = true; cleanup(); reject(err); };
@@ -76,6 +89,10 @@ export class RealRunner implements CommandRunner {
       });
       child.on("error", (err: NodeJS.ErrnoException) => {
         fail(new FlowError("spawn_error", `Failed to start "${cmd}": ${err.message}`, { step: req.step, details: { code: err.code, argv: req.argv }, cause: err }));
+      });
+      child.on("exit", () => {
+        exited = true;
+        if (killIssued) scheduleDestroy();
       });
       child.on("close", (code, signal) => {
         if (settled) return;
@@ -102,6 +119,19 @@ export class RealRunner implements CommandRunner {
 /** Wraps text in ANSI gray, but only when writing to a real terminal. */
 function gray(s: string): string {
   return process.stderr.isTTY ? `\x1b[90m${s}\x1b[0m` : s;
+}
+
+/** Signal the child's whole process group (POSIX), falling back to the child alone. */
+function signalTree(child: ChildProcess, sig: NodeJS.Signals): void {
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, sig);
+      return;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ESRCH") return;
+    }
+  }
+  try { child.kill(sig); } catch { /* already gone */ }
 }
 
 function tail(s: string, max = 4000): string {

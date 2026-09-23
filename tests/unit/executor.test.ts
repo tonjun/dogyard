@@ -177,6 +177,24 @@ describe("runFlow: concurrency, sinks, terminal fail, templated argv", () => {
     expect(r.error?.type).toBe("timeout");
     expect(r.trace.steps[0]!.status).toBe("interrupted");
   });
+  it("map item timeout fails only that item and records its duration", async () => {
+    const sleep = [process.execPath, "-e", "setTimeout(()=>{}, Number(process.argv[1]))", "=$string(item)"];
+    const flow = { name: "t", version: "1.0.0", steps: { m: { type: "map", over: "[10, 5000]", step: { type: "command", command: sleep, output_mode: "text", timeout: "300ms", catch: [{ error_type: "timeout", result: "timed out" }] } } } };
+    const r = await runFlow({ loaded: loadFlowFromObject(flow), trigger: {}, runner: new RealRunner(), persist: false });
+    expect(r.status).toBe("succeeded");
+    const items = r.trace.steps[0]!.items!;
+    expect(items.map((i) => i.status)).toEqual(["succeeded", "caught"]);
+    expect(items[1]!.error?.type).toBe("timeout");
+    expect(items[1]!.output).toBe("timed out");
+    expect(items[1]!.duration_ms).toBeGreaterThanOrEqual(300);
+  });
+  it("a map step's timeout bounds each item, not the whole map", async () => {
+    const sleep = [process.execPath, "-e", "setTimeout(()=>{}, Number(process.argv[1]))", "=$string(item)"];
+    const flow = { name: "t", version: "1.0.0", steps: { m: { type: "map", timeout: "400ms", max_concurrency: 1, over: "[200, 200, 200]", step: { type: "command", command: sleep, output_mode: "text" } } } };
+    const r = await runFlow({ loaded: loadFlowFromObject(flow), trigger: {}, runner: new RealRunner(), persist: false });
+    expect(r.status).toBe("succeeded");
+    expect(r.trace.steps[0]!.items!.every((i) => i.status === "succeeded")).toBe(true);
+  });
   it("external abort marks the run interrupted", async () => {
     const flow = { name: "t", version: "1.0.0", steps: { a: { type: "command", command: [process.execPath, "-e", "setTimeout(()=>{},5000)"] } } };
     const ac = new AbortController();

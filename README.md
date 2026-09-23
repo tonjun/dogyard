@@ -201,6 +201,16 @@ returns the trimmed text. `json` fails with `output_parse` if stdout is not JSON
 - `retry` re-runs a step for errors matching `on`. `catch` matches the first
   clause whose `error_type` fits, marks the step `caught` and uses `result` as
   its output so downstream steps continue.
+- Timeouts apply per command. In a `map` the limit applies to each item
+  (and each retry attempt), never to the map as a whole. An item's limit is
+  the sub-step's `timeout`, else the map step's `timeout`, else
+  `config.default_timeout`. Use `run_timeout` to cap total wall time. A
+  timed-out item fails with `timeout`; put `retry`/`catch` on the sub-step to
+  handle it per item.
+- A command that times out or is interrupted is killed together with
+  everything it started: each command runs in its own process group (POSIX),
+  which gets SIGTERM and then SIGKILL after 2s. Subprocesses of a wrapper script
+  (`steps/<step>/*.sh`) don't outlive the step or delay its `timeout`.
 
 ### Iterating and filtering
 

@@ -105,9 +105,10 @@ async function runSubStep(sub: MapSubStep, ctx: ExecutionContext, opts: MapStepO
         item.duration_ms = r.result.durationMs;
         return r.output;
       } catch (err) {
-        const d = (err as FlowError).details as { exitCode?: number; stderr?: string } | undefined;
+        const d = (err as FlowError).details as { exitCode?: number; stderr?: string; durationMs?: number } | undefined;
         if (d?.exitCode !== undefined) item.exit_code = d.exitCode;
         if (d?.stderr) item.stderr = d.stderr;
+        if (d?.durationMs !== undefined) item.duration_ms = d.durationMs;
         throw err;
       }
     }
