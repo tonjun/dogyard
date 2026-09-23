@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MockRunner, RealRunner, RecordingRunner } from "../../src/executor/command-runner.js";
 
@@ -24,6 +27,58 @@ describe("RealRunner", () => {
     const p = r.run({ step: "s", argv: [node, "-e", "setTimeout(()=>{},5000)"], signal: ac.signal });
     setTimeout(() => ac.abort(), 50);
     await expect(p).rejects.toMatchObject({ type: "interrupted" });
+  });
+});
+
+describe.skipIf(process.platform === "win32")("RealRunner kills the whole process group", () => {
+  const r = new RealRunner();
+  // Each command keeps bash alive past the grandchild (`; true`) so bash can't just exec it.
+  const settleTime = async (p: Promise<unknown>) => {
+    const t0 = Date.now();
+    const err = await p.then(() => undefined, (e: unknown) => e);
+    return { err, elapsed: Date.now() - t0 };
+  };
+  const pidAlive = (pid: number) => {
+    try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code !== "ESRCH"; }
+  };
+
+  it("timeout doesn't wait for a grandchild", async () => {
+    const { err, elapsed } = await settleTime(r.run({ step: "s", argv: ["bash", "-c", "sleep 30; true"], timeout: 200 }));
+    expect(err).toMatchObject({ type: "timeout" });
+    expect(elapsed).toBeLessThan(3000);
+    expect((err as { details: { durationMs: number } }).details.durationMs).toBeLessThan(3000);
+  });
+  it("timeout with command substitution and a pipeline", async () => {
+    const { err, elapsed } = await settleTime(r.run({ step: "s", argv: ["bash", "-c", "x=$(sleep 30 | cat); echo $x"], timeout: 200 }));
+    expect(err).toMatchObject({ type: "timeout" });
+    expect(elapsed).toBeLessThan(3000);
+  });
+  it("abort doesn't wait for a grandchild", async () => {
+    const ac = new AbortController();
+    const p = r.run({ step: "s", argv: ["bash", "-c", "sleep 30; true"], signal: ac.signal });
+    setTimeout(() => ac.abort(), 100);
+    const { err, elapsed } = await settleTime(p);
+    expect(err).toMatchObject({ type: "interrupted" });
+    expect(elapsed).toBeLessThan(3000);
+  });
+  it("leaves no orphaned grandchild behind", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dogyard-runner-"));
+    const pidFile = join(dir, "pid");
+    try {
+      await expect(r.run({ step: "s", argv: ["bash", "-c", 'sh -c "echo \\$\\$ > \\"$F\\"; exec sleep 30"; true'], env: { F: pidFile }, timeout: 300 })).rejects.toMatchObject({ type: "timeout" });
+      const pid = Number(readFileSync(pidFile, "utf8").trim());
+      expect(pid).toBeGreaterThan(0);
+      const deadline = Date.now() + 3000;
+      while (pidAlive(pid) && Date.now() < deadline) await new Promise((res) => setTimeout(res, 50));
+      expect(pidAlive(pid)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("settles even when a descendant ignores SIGTERM", async () => {
+    const { err, elapsed } = await settleTime(r.run({ step: "s", argv: ["bash", "-c", 'trap "" TERM; sleep 30; true'], timeout: 200 }));
+    expect(err).toMatchObject({ type: "timeout" });
+    expect(elapsed).toBeLessThan(4000);
   });
 });
 

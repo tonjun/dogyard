@@ -158,6 +158,7 @@ Notes on the sample:
 - A step can execute an arbitrary external CLI command/binary as its unit of work.
 - The flow definition specifies: the command/binary to run, how the step's resolved JSON input is passed to it (e.g. stdin, args, env), and how its output is captured back into the context (parsed as JSON where possible, with a raw-text fallback).
 - Non-zero exit codes / timeouts map to catchable, retryable errors within the flow, same as any other step failure.
+- A timed-out or interrupted command is killed along with its descendants: it runs in its own process group (POSIX), which is sent SIGTERM and then SIGKILL after a 2s grace, so a wrapper script's subprocesses cannot delay the error or leak.
 - This primitive is intentionally generic — an LLM runner, a build tool, a linter, a data-fetch script, etc. are all just "a command" from the engine's point of view. No specific external tool is special-cased in v1.
 
 ### 3.4 CLI surface (of the engine itself)
