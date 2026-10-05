@@ -335,7 +335,7 @@ describe("resume", () => {
     rmSync(path.join(dir, ".runs"), { recursive: true, force: true });
     const marker = path.join(work, "marker3");
     writeFileSync(marker, "");
-    const r = await cli(["run", dir, "--input", JSON.stringify({ marker, delay_ms: 400 }), "-q"], { signalAfterMs: 2000 });
+    const r = await cli(["run", dir, "--input", JSON.stringify({ marker, delay_ms: 1500 }), "-q"], { signalAfterMs: 3000 });
     expect(r.code).toBe(130);
     const runId = json(r.stdout).run_id as string;
     const trace = json(readFileSync(path.join(dir, ".runs", runId, "trace.json"), "utf8"));
