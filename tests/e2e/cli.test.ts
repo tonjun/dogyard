@@ -399,3 +399,42 @@ describe("step cache", () => {
     expect(runs()).toBe(4);
   }, 60_000);
 });
+
+describe("runs watch", () => {
+  it("follows a live run to the end, and replays a finished one (text and --json)", async () => {
+    const dir = path.join(work, "examples/flows/flaky-watch");
+    cpSync(flaky, dir, { recursive: true });
+    rmSync(path.join(dir, ".runs"), { recursive: true, force: true });
+    const marker = path.join(work, "watch-marker");
+    writeFileSync(marker, "");
+
+    const running = cli(["run", dir, "--input", JSON.stringify({ marker, delay_ms: 300 }), "-q"]);
+    const runsDir = path.join(dir, ".runs");
+    const deadline = Date.now() + 15_000;
+    while (!(existsSync(runsDir) && readdirSync(runsDir).length) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+    const watched = await cli(["runs", "watch", dir, "--interval", "50ms"]);
+    expect((await running).code).toBe(0);
+    expect(watched.code, watched.stderr).toBe(0);
+    expect(watched.stderr).toMatch(/slow_map {2}4\/4 {2}succeeded in/);
+    expect(watched.stderr).toMatch(/Run \S+ succeeded/);
+
+    const replay = await cli(["runs", "watch", dir, "latest", "--json"]);
+    expect(replay.code).toBe(0);
+    const events = replay.stdout.trim().split("\n").map(json);
+    expect(events.at(-1)).toMatchObject({ event: "end", status: "succeeded", output: { count: 4, marker } });
+    const map = events[0].steps.find((s: { name: string }) => s.name === "slow_map");
+    expect(map.items).toMatchObject({ total: 4, done: 4 });
+
+    const list = json((await cli(["runs", dir, "--json"])).stdout);
+    expect(list[0].progress).toMatchObject({ items_done: 4, items_total: 4 });
+    expect(list[0].progress.duration_ms).toBeGreaterThan(0);
+  });
+
+  it("exits nonzero with the last error for a failed run", async () => {
+    const r = await cli(["run", flaky, "--input", JSON.stringify({ marker: path.join(work, "never") }), "-q"]);
+    const runId = json(r.stdout).run_id as string;
+    const watched = await cli(["runs", "watch", flaky, runId]);
+    expect(watched.code).toBe(1);
+    expect(watched.stderr).toMatch(/last error: wait_for_marker /);
+  });
+});

@@ -54,8 +54,10 @@ export async function executeMapStep(step: MapStep, ctx: ExecutionContext, opts:
         if (item.status === "succeeded" || item.status === "caught") return;
         if (firstError || opts.signal?.aborted) return; // fail fast: don't start new items
         item.status = "running";
+        item.started_at = now();
+        delete item.ended_at;
         opts.onItemChange?.(items);
-        const itemCtx = buildContext(ctx.trigger, [], { item: list[index], index });
+        const itemCtx = buildContext(ctx.trigger, [], { item: list[index], index, total: list.length });
         itemCtx.steps = ctx.steps;
         try {
           const sub = step.step;
@@ -88,6 +90,7 @@ export async function executeMapStep(step: MapStep, ctx: ExecutionContext, opts:
             firstError ??= fe;
           }
         }
+        item.ended_at = now();
         opts.onItemChange?.(items);
       }),
     ),
@@ -108,6 +111,7 @@ async function runSubStep(sub: MapSubStep, ctx: ExecutionContext, opts: MapStepO
   switch (sub.type) {
     case "command": {
       const cmdOpts: Parameters<typeof executeCommandStep>[2] = { stepName: opts.stepName, runner: opts.runner, itemIndex: index };
+      if (ctx.total !== undefined) cmdOpts.itemTotal = ctx.total;
       if (opts.itemTimeout !== undefined) cmdOpts.timeout = opts.itemTimeout;
       if (opts.signal) cmdOpts.signal = opts.signal;
       if (opts.cwd) cmdOpts.cwd = opts.cwd;

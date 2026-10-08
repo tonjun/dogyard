@@ -362,6 +362,7 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
           },
         };
         if (itemTimeout !== undefined) o.itemTimeout = itemTimeout;
+        st.max_concurrency = o.maxConcurrency;
         if (st.items) o.items = st.items;
         if (cache) o.cache = cache;
         const r = await executeMapStep(step, ctx, o);

@@ -262,3 +262,29 @@ describe("resume", () => {
     expect(readTrace(r.traceFile!).output).toBe(1);
   });
 });
+
+describe("map item progress context", () => {
+  const flow = (sub: Record<string, unknown>) => ({
+    name: "items",
+    version: "0.1.0",
+    steps: { each: { type: "map", over: '["a","b","c"]', max_concurrency: 2, step: sub } },
+  });
+
+  it("binds `total`, records item timing and the effective concurrency", async () => {
+    const r = await run(flow({ type: "transform", input: '{ "i": index, "n": total, "item": item }' }), {}, {});
+    expect(r.status).toBe("succeeded");
+    expect(r.output).toEqual([{ i: 0, n: 3, item: "a" }, { i: 1, n: 3, item: "b" }, { i: 2, n: 3, item: "c" }]);
+    const step = r.trace.steps[0]!;
+    expect(step.max_concurrency).toBe(2);
+    for (const item of step.items!) {
+      expect(Date.parse(item.ended_at!)).toBeGreaterThanOrEqual(Date.parse(item.started_at!));
+    }
+  });
+
+  it("passes WF_ITEM_INDEX / WF_ITEM_TOTAL to command sub-steps", async () => {
+    const cmd = { type: "command", command: [process.execPath, "-e", "console.log(JSON.stringify([process.env.WF_ITEM_INDEX, process.env.WF_ITEM_TOTAL]))"] };
+    const r = await run(flow(cmd), {}, {}, { runner: new RealRunner() });
+    expect(r.status, JSON.stringify(r.error)).toBe("succeeded");
+    expect(r.output).toEqual([["0", "3"], ["1", "3"], ["2", "3"]]);
+  });
+});

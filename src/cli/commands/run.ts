@@ -8,8 +8,14 @@ import { prepareResume } from "../../executor/checkpoint.js";
 import { MockRunner, RealRunner, RecordingRunner, type CommandRunner } from "../../executor/command-runner.js";
 import { runFlow, type RunOptions, type RunResult } from "../../executor/run.js";
 import { loadMocksFile } from "../../testing/run-tests.js";
-import { cacheStats, readTrace, traceFile, type RunTrace } from "../../trace.js";
+import type { LoadedFlow } from "../../loader.js";
+import { historicalItemMedians } from "../../progress.js";
+import { cacheStats, readTrace, recentRuns, traceFile, type RunTrace } from "../../trace.js";
+import { ProgressDisplay, stepTransitionLogger } from "../progress-display.js";
 import { fail, loadValidFlow, log, printJson, resolveTrigger } from "../util.js";
+
+/** How many earlier runs to read when seeding the ETA. */
+const HISTORY_RUNS = 10;
 
 interface CommonRunFlags {
   mocks?: string;
@@ -40,15 +46,16 @@ function addCommonRunFlags(cmd: Command): Command {
     .option("-q, --quiet", "suppress progress output on stderr");
 }
 
-function buildRunner(flags: CommonRunFlags): { runner: CommandRunner; recorder?: RecordingRunner } {
+function buildRunner(flags: CommonRunFlags, display?: ProgressDisplay): { runner: CommandRunner; recorder?: RecordingRunner } {
   if (flags.mocks && flags.record) fail("Use only one of --mocks and --record");
   if (flags.mocks) return { runner: new MockRunner(loadMocksFile(path.resolve(flags.mocks))) };
-  const streamStderr = !flags.quiet;
+  const realOpts: ConstructorParameters<typeof RealRunner>[0] = { streamStderr: !flags.quiet };
+  if (display) realOpts.writeStderr = (text) => display.write(text);
   if (flags.record) {
-    const recorder = new RecordingRunner(new RealRunner({ streamStderr }));
+    const recorder = new RecordingRunner(new RealRunner(realOpts));
     return { runner: recorder, recorder };
   }
-  return { runner: new RealRunner({ streamStderr }) };
+  return { runner: new RealRunner(realOpts) };
 }
 
 function commonOptions(flags: CommonRunFlags & { traceFile?: boolean }): Partial<RunOptions> {
@@ -64,11 +71,11 @@ function commonOptions(flags: CommonRunFlags & { traceFile?: boolean }): Partial
 }
 
 /** Wire SIGINT/SIGTERM to an AbortController so the trace records `interrupted`. */
-function installSignalHandlers(): { signal: AbortSignal; dispose: () => void } {
+function installSignalHandlers(display?: ProgressDisplay): { signal: AbortSignal; dispose: () => void } {
   const ac = new AbortController();
   const handler = (sig: NodeJS.Signals) => {
     if (!ac.signal.aborted) {
-      log(`\nReceived ${sig}; interrupting run (trace will be checkpointed)…`);
+      (display ? (m: string) => display.log(m) : log)(`\nReceived ${sig}; interrupting run (trace will be checkpointed)…`);
       ac.abort(new FlowError("interrupted", `Run interrupted by ${sig}`));
     }
   };
@@ -77,17 +84,18 @@ function installSignalHandlers(): { signal: AbortSignal; dispose: () => void } {
   return { signal: ac.signal, dispose: () => { process.off("SIGINT", handler); process.off("SIGTERM", handler); } };
 }
 
-function progressLogger(quiet: boolean | undefined): RunOptions["onProgress"] {
-  if (quiet) return undefined;
-  const seen = new Map<string, string>();
-  return (trace: RunTrace) => {
-    for (const s of trace.steps) {
-      if (seen.get(s.name) === s.status) continue;
-      seen.set(s.name, s.status);
-      if (s.status === "pending") continue;
-      const extra = s.status === "skipped" ? ` (${s.skip_reason})` : s.error && s.status !== "caught" ? ` (${s.error.type}: ${s.error.message})` : s.selected ? ` -> ${s.selected}` : s.cache?.hit ? " (cached)" : "";
-      log(`[${s.status.padEnd(11)}] ${s.name}${extra}`);
-    }
+/** Live progress (unless -q): step transitions plus per-map status lines with an ETA seeded from earlier runs. */
+function startProgress(flags: CommonRunFlags, loaded: LoadedFlow, excludeRunId?: string): { display: ProgressDisplay; onProgress: NonNullable<RunOptions["onProgress"]> } | undefined {
+  if (flags.quiet) return undefined;
+  const history = historicalItemMedians(recentRuns(loaded.dir, HISTORY_RUNS + 1, flags.traceDir), excludeRunId);
+  const display = new ProgressDisplay({ history });
+  const transitions = stepTransitionLogger((m) => display.log(m));
+  return {
+    display,
+    onProgress: (trace) => {
+      transitions(trace);
+      display.update(trace);
+    },
   };
 }
 
@@ -122,17 +130,19 @@ export function registerRun(program: Command): void {
     if (flags.resume) return resumeAction(flowPath, flags.resume, flags);
     const loaded = loadValidFlow(flowPath, { project: flags.project !== false });
     const trigger = resolveTrigger(flags);
-    const { runner, recorder } = buildRunner(flags);
-    const sig = installSignalHandlers();
+    const progress = startProgress(flags, loaded);
+    const { runner, recorder } = buildRunner(flags, progress?.display);
+    const sig = installSignalHandlers(progress?.display);
+    let result: RunResult;
     try {
       const opts: RunOptions = { loaded, trigger, runner, signal: sig.signal, ...commonOptions(flags) };
-      const onProgress = progressLogger(flags.quiet);
-      if (onProgress) opts.onProgress = onProgress;
-      const result = await runFlow(opts);
-      finishRun(result, flags, recorder);
+      if (progress) opts.onProgress = progress.onProgress;
+      result = await runFlow(opts);
     } finally {
+      progress?.display.stop();
       sig.dispose();
     }
+    finishRun(result, flags, recorder);
   });
 
   addCommonRunFlags(
@@ -158,16 +168,18 @@ async function resumeAction(flowPath: string, runId: string, flags: CommonRunFla
     printJson(resume.output ?? null);
     return;
   }
-  const { runner, recorder } = buildRunner(flags);
-  const sig = installSignalHandlers();
+  if (!flags.quiet) log(`Resuming run ${runId} (resume #${resume.resume_count})`);
+  const progress = startProgress(flags, loaded, runId);
+  const { runner, recorder } = buildRunner(flags, progress?.display);
+  const sig = installSignalHandlers(progress?.display);
+  let result: RunResult;
   try {
     const opts: RunOptions = { loaded, trigger: resume.trigger, runner, signal: sig.signal, resume, ...commonOptions(flags) };
-    const onProgress = progressLogger(flags.quiet);
-    if (onProgress) opts.onProgress = onProgress;
-    if (!flags.quiet) log(`Resuming run ${runId} (resume #${resume.resume_count})`);
-    const result = await runFlow(opts);
-    finishRun(result, flags, recorder);
+    if (progress) opts.onProgress = progress.onProgress;
+    result = await runFlow(opts);
   } finally {
+    progress?.display.stop();
     sig.dispose();
   }
+  finishRun(result, flags, recorder);
 }

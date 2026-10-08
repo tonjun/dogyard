@@ -11,6 +11,8 @@ export const stepContextSchema = z
     /** Map sub-steps: the current element (required when the step is a map). */
     item: z.unknown().optional(),
     index: z.number().int().min(0).optional(),
+    /** Map sub-steps: number of items in the map (default: index + 1). */
+    total: z.number().int().min(1).optional(),
   })
   .strict();
 export type StepContext = z.infer<typeof stepContextSchema>;

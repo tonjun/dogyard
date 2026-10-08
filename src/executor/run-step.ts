@@ -61,6 +61,7 @@ export async function runStep(opts: StepRunOptions): Promise<StepRunResult> {
   if (isMapItem) {
     ctx.item = context.item;
     ctx.index = context.index ?? 0;
+    ctx.total = context.total ?? ctx.index + 1;
   }
 
   const timeout = step.timeout !== undefined ? parseDuration(step.timeout) : flow.config.default_timeout !== undefined ? parseDuration(flow.config.default_timeout) : undefined;
@@ -73,7 +74,10 @@ export async function runStep(opts: StepRunOptions): Promise<StepRunResult> {
       const o: Parameters<typeof executeCommandStep>[2] = { stepName, runner, cwd: resolveStepCwd(loaded.dir, stepName, step) };
       if (timeout !== undefined) o.timeout = timeout;
       if (opts.signal) o.signal = opts.signal;
-      if (isMapItem) o.itemIndex = ctx.index;
+      if (isMapItem) {
+        o.itemIndex = ctx.index;
+        o.itemTotal = ctx.total;
+      }
       try {
         const r = await executeCommandStep(step, ctx, o);
         result.input = r.input;

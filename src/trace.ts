@@ -35,6 +35,9 @@ export interface ItemTrace {
   exit_code?: number;
   stderr?: string;
   duration_ms?: number;
+  /** Wall-clock span of the item across all attempts (incl. retry backoff). */
+  started_at?: string;
+  ended_at?: string;
   cache?: CacheTrace;
 }
 
@@ -57,6 +60,8 @@ export interface StepTrace {
   selected?: string;
   /** Map steps: per-item state (the checkpoint for item-granular resume). */
   items?: ItemTrace[];
+  /** Map steps: the effective item concurrency (used for ETA). */
+  max_concurrency?: number;
   /** Why a step was skipped. */
   skip_reason?: string;
   cache?: CacheTrace;
@@ -123,6 +128,32 @@ export function listRuns(flowDir: string, traceDir?: string): RunTrace[] {
     }
   }
   return runs.sort((a, b) => a.started_at.localeCompare(b.started_at));
+}
+
+/**
+ * Up to `limit` most recent runs, newest first, reading only those traces
+ * (run ids start with a UTC timestamp, so directory names sort by start time).
+ */
+export function recentRuns(flowDir: string, limit: number, traceDir?: string): RunTrace[] {
+  const dir = runsDir(flowDir, traceDir);
+  if (!existsSync(dir)) return [];
+  const names = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort()
+    .reverse();
+  const runs: RunTrace[] = [];
+  for (const name of names) {
+    if (runs.length >= limit) break;
+    const f = path.join(dir, name, "trace.json");
+    if (!existsSync(f)) continue;
+    try {
+      runs.push(readTrace(f));
+    } catch {
+      /* ignore unreadable traces */
+    }
+  }
+  return runs;
 }
 
 /** The most recently started run, if any. */
