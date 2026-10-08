@@ -109,7 +109,7 @@ version: 0.1.0                 # semver
 description: optional text
 
 config:                        # all optional; steps override per-step
-  default_timeout: 30s         # per command (Ns, Nms, Nm, Nh)
+  default_timeout: 30s         # per command (Nms, Ns, Nm, Nh, Nd)
   default_retry: { max_attempts: 2, backoff: 2s, on: [command_failure] }
   max_concurrency: 8           # steps (and default map items) in flight at once
   run_timeout: 10m             # whole-run guardrail
@@ -135,6 +135,7 @@ steps:
       type: command
       command: ["llm-run", "--prompt-file", "../../prompts/summarize.md"]
       input: '{ "text": item.body, "i": index }'         # `item` and `index` are bound
+      cache: { files: [../../prompts/summarize.md] }      # reuse earlier results per item (see Caching)
       catch:
         - { error_type: command_failure, result: { summary: "" } }
 
@@ -167,7 +168,7 @@ steps:
 
 | Type | Fields | Output |
 |---|---|---|
-| `command` | `command` (argv array), `input`, `input_mode` (`stdin` default, `args`, `env`), `output_mode` (`auto` default, `json`, `text`, `lines`), `cwd`, `env`, `mock` | Parsed stdout |
+| `command` | `command` (argv array), `input`, `input_mode` (`stdin` default, `args`, `env`), `output_mode` (`auto` default, `json`, `text`, `lines`), `cwd`, `env`, `mock`, `cache` | Parsed stdout |
 | `transform` / `pass` | `input` | The resolved `input` (`{}` if absent) |
 | `choice` | `branches: [{when, next}]`, `default` | `{ selected, matched }`; routes execution |
 | `map` | `over`, `step`, `max_concurrency` | Ordered array of per-item outputs |
@@ -211,6 +212,53 @@ returns the trimmed text. `json` fails with `output_parse` if stdout is not JSON
   everything it started: each command runs in its own process group (POSIX),
   which gets SIGTERM and then SIGKILL after 2s. Subprocesses of a wrapper script
   (`steps/<step>/*.sh`) don't outlive the step or delay its `timeout`.
+
+### Caching
+
+A `command` step (or a map's command sub-step) with `cache:` reuses an earlier
+**successful** result when its cache key is unchanged, across runs, even after
+`flow.yaml` was edited elsewhere. A map caches each item separately, so if 3 of
+300 items are new only those 3 run.
+
+```yaml
+recommend:
+  type: map
+  over: steps.build_brief.output
+  step:
+    type: command
+    command: ["./recommend.sh"]
+    input: "item"
+    cache:                                  # or just `cache: true`
+      key: '{ "url": $lowercase(url) }'     # JSONata over the resolved input ($); default: input + argv
+      files: [config/system.md, "config/*.json", recommend.sh]   # hashed; relative to the step cwd; *, **, ?
+      env: [RECOMMEND_SYSTEM]               # env var values hashed into the key
+      ttl: 90d                              # optional; older entries are misses
+```
+
+- **Key**: sha256 of the `key` value (or the resolved input and argv), the step
+  definition, the contents of `files` and the values of `env`. Editing the
+  command, input mapping, `output_mode`, a hashed file or env var invalidates
+  the entry. Editing `timeout`, `retry`, `catch`, `needs`, `mock`, `description`
+  or `ttl` does not. A `key` expression lets you canonicalize (e.g. URL variants);
+  the resolved argv is then not part of the key, only the `command` template.
+- **Store**: `.dogyard/cache/<flow>/<step>/<key>.json` (`{ key, output, created_at,
+  run_id, duration_ms, item_index? }`) next to the nearest `workflows.yaml`, else
+  in the flow folder. Add `.dogyard/` to `.gitignore`.
+- **Only success is cached.** `failed` and `caught` results are never stored, so
+  they are retried on the next run. A key that cannot be computed (e.g. an
+  `input` expression error) just skips the cache; the step then fails or is
+  caught as usual.
+- **Trace**: a hit keeps status `succeeded` with no attempts and records
+  `cache: { key, hit: true, source_run_id, created_at }`; an executed step
+  records `cache: { key, hit: false }`. `run` prints `Cache: N cached / M executed`
+  and `runs <flow>` shows the counts per run.
+- **Flags**: `run`/`resume` accept `--no-cache` and `--refresh <step>[,<step>]`
+  (skip the lookup, store a fresh result). `--mocks` and `--record` disable the
+  cache. `test` never uses it; `eval` only with `--cache` and real execution.
+  `dogyard cache ls|clear <flow> [--step <name>]` (`clear --expired` keeps live entries).
+- **Side effects are skipped too.** A hit does not run the command at all, so a
+  step that appends to a file or calls an API does nothing on a hit. Keep such
+  side effects idempotent, or build output files from step outputs instead.
 
 ### Iterating and filtering
 
@@ -318,7 +366,9 @@ flows/<name>/
     evals/dataset.yaml   (or .jsonl) { id?, context, expected? } examples
     evals/reports/       written by `eval --step <step>`
   .runs/<run_id>/trace.json
+  .dogyard/cache/        step result cache (when there is no workflows.yaml)
 workflows.yaml           optional project-level defaults (discovered by walking up)
+.dogyard/cache/<flow>/   step result cache, next to workflows.yaml
 ```
 
 A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
@@ -331,11 +381,12 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 | `new <name> [--dir flows]` | Scaffold a flow folder with a sample test, eval and `steps/shout/` step folder. |
 | `new-step <flow> <step> [--force]` | Scaffold `steps/<step>/` (starter test + eval) for an existing command step. |
 | `validate <flow>` | Structural + reference + DAG + expression-syntax checks. `--json` for machine output. |
-| `run <flow> [--query <text> \| --input <json> \| --input-file <path>]` | Run once; the trigger is optional (defaults to `{}`). `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `-q`. |
+| `run <flow> [--query <text> \| --input <json> \| --input-file <path>]` | Run once; the trigger is optional (defaults to `{}`). `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `--no-cache`, `--refresh <steps>`, `-q`. |
 | `resume <flow> <run_id> [--force]` | Continue a failed or interrupted run from its trace. Also `run --resume <run_id>`. |
-| `runs <flow>` / `runs show <flow> [run_id]` | List persisted runs / print one trace (the latest run when `run_id` is omitted or `latest`). |
+| `runs <flow>` / `runs show <flow> [run_id]` | List persisted runs (with cached/executed counts) / print one trace (the latest run when `run_id` is omitted or `latest`). |
+| `cache ls <flow> [--step] [--json]` / `cache clear <flow> [--step] [--expired]` | Inspect or delete cached step results. |
 | `test <flow> [-k filter] [--step <name>] [--no-steps]` | Run `tests/*.test.yaml` with mocked commands plus every `steps/<step>/tests/*.test.yaml`. `--step` runs one step's tests only; `--no-steps` skips step tests. |
-| `eval <flow> [--step <name>] [--dataset] [--mocks] [--concurrency] [--limit] [--report] [--json]` | Score a dataset and write a report. With `--step`, evaluate that step alone using `steps/<name>/evals/`. |
+| `eval <flow> [--step <name>] [--dataset] [--mocks] [--concurrency] [--limit] [--cache] [--report] [--json]` | Score a dataset and write a report. With `--step`, evaluate that step alone using `steps/<name>/evals/`. |
 | `list [root]` | Find flows under a directory. |
 | `describe <flow>` | Print metadata, config and steps. |
 | `graph <flow> --format json\|dot\|mermaid` | Export the DAG. `json` is the canonical form for a future UI. |
@@ -485,7 +536,8 @@ code, stderr, the selected choice branch and per-item map results.
 `resume <flow> <run_id>` reloads the flow, refuses if its definition changed
 (override with `--force`), keeps every `succeeded`/`caught` step and map item,
 and re-executes only what was pending, running, failed or interrupted. The run
-keeps its id and `resume_count` increments.
+keeps its id and `resume_count` increments. Re-executed steps that declare
+`cache:` consult the step cache like a fresh run (see Caching).
 
 ## Using an LLM (or any tool)
 

@@ -80,6 +80,13 @@ logic. `testing/run-step-tests.ts` discovers `steps/<step>/tests/*.test.yaml`
 `steps/<step>/evals/` datasets (`schema/step-eval.ts`) through it. The CLI
 surfaces these as `test --step/--no-steps`, `eval --step`, and `new-step`.
 
+**Step cache:** `executor/cache.ts` computes a content key for `command`
+steps (and map command sub-steps, per item) that declare `cache:`, and
+reads/writes `.dogyard/cache/<flow>/<step>/<key>.json` (beside `workflows.yaml`,
+else in the flow folder). `run.ts`/`map.ts` probe it before `withRetry`; a hit
+stays `succeeded` with a `cache` field in the trace. Only successes are stored;
+Mock/Recording runners and `test` disable it, `eval` needs `--cache`.
+
 **Schemas:** `src/schema/*.ts` (Zod) define `flow.yaml`, `workflows.yaml`
 (project defaults), `*.test.yaml`, and `eval.yaml`/dataset shapes; these are
 the source of truth for what's valid in each YAML file, not the README.

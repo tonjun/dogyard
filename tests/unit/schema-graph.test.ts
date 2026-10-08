@@ -96,3 +96,16 @@ describe("loader", () => {
     expect(computeFlowHash({ a: 1, b: [1, { c: 2 }] })).toBe(computeFlowHash({ b: [1, { c: 2 }], a: 1 }));
   });
 });
+
+describe("cache schema", () => {
+  const withCache = (cache: unknown) => ({ name: "c", version: "0.1.0", steps: { a: { type: "command", command: ["x"], cache } } });
+  it("accepts `true` and the full form", () => {
+    expect(validateRawFlow(withCache(true)).ok).toBe(true);
+    expect(validateRawFlow(withCache({ key: "url", files: ["*.md"], env: ["X"], ttl: "90d" })).ok).toBe(true);
+  });
+  it("rejects bad ttl, unknown keys and cache on non-command steps", () => {
+    expect(validateRawFlow(withCache({ ttl: "soon" })).ok).toBe(false);
+    expect(validateRawFlow(withCache({ scope: "project" })).ok).toBe(false);
+    expect(validateRawFlow({ name: "c", version: "0.1.0", steps: { a: { type: "pass", cache: true } } }).ok).toBe(false);
+  });
+});

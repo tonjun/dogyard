@@ -3,6 +3,7 @@ import { FlowError, errorMatchesAny, toFlowError } from "../../errors.js";
 import { evaluateExpression } from "../../expr.js";
 import type { MapStep, MapSubStep, RetryPolicy } from "../../schema/flow.js";
 import { now, type ItemTrace } from "../../trace.js";
+import { hitTrace, probeCache, storeResult, type CacheContext } from "../cache.js";
 import type { CommandRunner } from "../command-runner.js";
 import { buildContext, type ExecutionContext } from "../context.js";
 import { withRetry } from "../retry.js";
@@ -22,6 +23,8 @@ export interface MapStepOptions {
   items?: ItemTrace[];
   /** Fired whenever an item's state changes so the caller can checkpoint. */
   onItemChange?: (items: ItemTrace[]) => void;
+  /** Result cache, used per item when the command sub-step declares `cache`. */
+  cache?: CacheContext;
 }
 
 export interface MapOutcome {
@@ -55,11 +58,22 @@ export async function executeMapStep(step: MapStep, ctx: ExecutionContext, opts:
         const itemCtx = buildContext(ctx.trigger, [], { item: list[index], index });
         itemCtx.steps = ctx.steps;
         try {
-          const res = await withRetry(opts.itemRetry, item.attempts, () => runSubStep(step.step, itemCtx, opts, index, item), {
-            signal: opts.signal,
-            step: opts.stepName,
-          });
-          item.output = res;
+          const sub = step.step;
+          const probe = sub.type === "command" ? await probeCache(opts.cache, opts.stepName, sub, itemCtx, opts.cwd ?? process.cwd()) : undefined;
+          if (probe?.hit) {
+            item.input = probe.invocation.input;
+            item.output = probe.hit.output;
+            item.cache = hitTrace(probe);
+          } else {
+            if (probe) item.cache = { key: probe.key, hit: false };
+            const started = Date.now();
+            const res = await withRetry(opts.itemRetry, item.attempts, () => runSubStep(sub, itemCtx, opts, index, item), {
+              signal: opts.signal,
+              step: opts.stepName,
+            });
+            item.output = res;
+            if (probe) item.cache = storeResult(probe, res, { duration_ms: Date.now() - started, item_index: index });
+          }
           item.status = "succeeded";
         } catch (err) {
           const fe = toFlowError(err, opts.stepName);

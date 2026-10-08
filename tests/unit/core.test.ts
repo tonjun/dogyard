@@ -28,6 +28,7 @@ describe("duration", () => {
     expect(parseDuration("2m")).toBe(120_000);
     expect(parseDuration("1.5s")).toBe(1500);
     expect(parseDuration(42)).toBe(42);
+    expect(parseDuration("90d")).toBe(90 * 86_400_000);
     expect(() => parseDuration("abc")).toThrow();
   });
   it("formats", () => {

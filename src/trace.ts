@@ -13,6 +13,18 @@ export interface AttemptTrace {
   error?: FlowErrorJSON;
 }
 
+/** Cache outcome of a command step (or map item) that declares `cache`. */
+export interface CacheTrace {
+  key: string;
+  /** true: output reused from the store; false: executed (and stored). */
+  hit: boolean;
+  /** Hits: the run that produced the reused output, and when. */
+  source_run_id?: string;
+  created_at?: string;
+  /** Misses: why the fresh result could not be stored. */
+  store_error?: string;
+}
+
 export interface ItemTrace {
   index: number;
   status: StepStatus;
@@ -23,6 +35,7 @@ export interface ItemTrace {
   exit_code?: number;
   stderr?: string;
   duration_ms?: number;
+  cache?: CacheTrace;
 }
 
 export interface StepTrace {
@@ -46,6 +59,7 @@ export interface StepTrace {
   items?: ItemTrace[];
   /** Why a step was skipped. */
   skip_reason?: string;
+  cache?: CacheTrace;
 }
 
 export interface RunTrace {
@@ -122,4 +136,23 @@ export function executedPath(trace: RunTrace): string[] {
     .filter((s) => s.status === "succeeded" || s.status === "caught" || s.status === "failed")
     .sort((a, b) => (a.ended_at ?? "").localeCompare(b.ended_at ?? ""))
     .map((s) => s.name);
+}
+
+/**
+ * Cacheable work (command steps / map items that declare `cache`) reused from the
+ * store vs actually executed. Pending or skipped work is not counted.
+ */
+export function cacheStats(trace: RunTrace): { cached: number; executed: number } {
+  let cached = 0;
+  let executed = 0;
+  const count = (t: { status: StepStatus; cache?: CacheTrace }) => {
+    if (!t.cache) return;
+    if (t.cache.hit) cached++;
+    else if (t.status === "succeeded" || t.status === "caught" || t.status === "failed") executed++;
+  };
+  for (const s of trace.steps) {
+    count(s);
+    s.items?.forEach(count);
+  }
+  return { cached, executed };
 }

@@ -353,3 +353,37 @@ describe("resume", () => {
     expect(t.output.count).toBe(4);
   }, 60_000);
 });
+
+describe("step cache", () => {
+  it("reuses results across runs and supports --no-cache, --refresh, cache ls/clear", async () => {
+    const dir = mkdtempSync(path.join(work, "cache-"));
+    const counter = path.join(dir, "count.txt");
+    const script = `const fs=require("fs");const f=${JSON.stringify(counter)};fs.appendFileSync(f,"x");process.stdout.write(JSON.stringify({n:fs.readFileSync(f,"utf8").length}))`;
+    writeFileSync(path.join(dir, "flow.yaml"), `name: cache-e2e\nversion: 0.1.0\nsteps:\n  work:\n    type: command\n    command: ["${process.execPath.replaceAll("\\", "/")}", "-e", ${JSON.stringify(script)}]\n    input: trigger\n    cache: true\n`);
+    const runs = () => readFileSync(counter, "utf8").length;
+
+    const first = await cli(["run", dir, "--query", "a"]);
+    expect(first.code, first.stderr).toBe(0);
+    expect(first.stderr).toMatch(/Cache: 0 cached \/ 1 executed/);
+    const second = await cli(["run", dir, "--query", "a"]);
+    expect(second.stderr).toMatch(/Cache: 1 cached \/ 0 executed/);
+    expect(second.stderr).toMatch(/\(cached\)/);
+    expect(json(second.stdout)).toEqual(json(first.stdout));
+    expect(runs()).toBe(1);
+
+    await cli(["run", dir, "--query", "a", "--no-cache", "-q"]);
+    expect(runs()).toBe(2);
+    await cli(["run", dir, "--query", "a", "--refresh", "work", "-q"]);
+    expect(runs()).toBe(3);
+
+    const ls = await cli(["cache", "ls", dir, "--json"]);
+    expect(ls.code, ls.stderr).toBe(0);
+    expect(json(ls.stdout)).toHaveLength(1);
+    const list = await cli(["runs", "list", dir]);
+    expect(list.stdout).toMatch(/cached=1 executed=0/);
+    const clear = await cli(["cache", "clear", dir]);
+    expect(clear.stderr).toMatch(/Removed 1 cache entry/);
+    await cli(["run", dir, "--query", "a", "-q"]);
+    expect(runs()).toBe(4);
+  }, 60_000);
+});

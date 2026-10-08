@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { createRequire } from "node:module";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { registerCache } from "./commands/cache.js";
 import { registerInspect } from "./commands/inspect.js";
 import { registerQuality } from "./commands/quality.js";
 import { registerRun } from "./commands/run.js";
@@ -17,6 +18,7 @@ export function buildProgram(): Command {
   registerRun(program);
   registerInspect(program);
   registerQuality(program);
+  registerCache(program);
   return program;
 }
 

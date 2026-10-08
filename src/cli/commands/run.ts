@@ -8,7 +8,7 @@ import { prepareResume } from "../../executor/checkpoint.js";
 import { MockRunner, RealRunner, RecordingRunner, type CommandRunner } from "../../executor/command-runner.js";
 import { runFlow, type RunOptions, type RunResult } from "../../executor/run.js";
 import { loadMocksFile } from "../../testing/run-tests.js";
-import { readTrace, traceFile, type RunTrace } from "../../trace.js";
+import { cacheStats, readTrace, traceFile, type RunTrace } from "../../trace.js";
 import { fail, loadValidFlow, log, printJson, resolveTrigger } from "../util.js";
 
 interface CommonRunFlags {
@@ -21,6 +21,8 @@ interface CommonRunFlags {
   runTimeout?: string;
   project?: boolean;
   quiet?: boolean;
+  cache?: boolean;
+  refresh?: string;
 }
 
 function addCommonRunFlags(cmd: Command): Command {
@@ -33,6 +35,8 @@ function addCommonRunFlags(cmd: Command): Command {
     .option("--max-concurrency <n>", "override the flow's max_concurrency")
     .option("--run-timeout <duration>", "override the flow's run_timeout (e.g. 5m)")
     .option("--no-project", "ignore project-level workflows.yaml config")
+    .option("--no-cache", "do not read or write the step result cache")
+    .option("--refresh <steps>", "comma-separated steps that skip the cache lookup and store a fresh result")
     .option("-q, --quiet", "suppress progress output on stderr");
 }
 
@@ -53,6 +57,9 @@ function commonOptions(flags: CommonRunFlags & { traceFile?: boolean }): Partial
   if (flags.traceDir) o.traceDir = flags.traceDir;
   if (flags.maxConcurrency) o.maxConcurrency = Number(flags.maxConcurrency);
   if (flags.runTimeout) o.runTimeout = parseDuration(flags.runTimeout);
+  // --mocks / --record disable the cache by default (see RunOptions.cache).
+  if (flags.cache === false) o.cache = { enabled: false };
+  else if (flags.refresh) o.cache = { refresh: flags.refresh.split(",").map((s) => s.trim()).filter(Boolean) };
   return o;
 }
 
@@ -78,7 +85,7 @@ function progressLogger(quiet: boolean | undefined): RunOptions["onProgress"] {
       if (seen.get(s.name) === s.status) continue;
       seen.set(s.name, s.status);
       if (s.status === "pending") continue;
-      const extra = s.status === "skipped" ? ` (${s.skip_reason})` : s.error && s.status !== "caught" ? ` (${s.error.type}: ${s.error.message})` : s.selected ? ` -> ${s.selected}` : "";
+      const extra = s.status === "skipped" ? ` (${s.skip_reason})` : s.error && s.status !== "caught" ? ` (${s.error.type}: ${s.error.message})` : s.selected ? ` -> ${s.selected}` : s.cache?.hit ? " (cached)" : "";
       log(`[${s.status.padEnd(11)}] ${s.name}${extra}`);
     }
   };
@@ -91,6 +98,8 @@ function finishRun(result: RunResult, flags: CommonRunFlags, recorder?: Recordin
   }
   if (!flags.quiet) {
     if (result.traceFile) log(`Trace: ${result.traceFile}`);
+    const stats = cacheStats(result.trace);
+    if (stats.cached || stats.executed) log(`Cache: ${stats.cached} cached / ${stats.executed} executed`);
     log(`Run ${result.trace.run_id} ${result.status}${result.error ? `: ${result.error.type}: ${result.error.message}` : ""}`);
   }
   if (flags.trace) printJson(result.trace);

@@ -85,7 +85,7 @@ export async function runTestCase(loaded: LoadedFlow, tc: TestCase, file = "<inl
   let trace: RunTrace | undefined;
   try {
     const mocks = { ...collectInlineMocks(loaded), ...resolveMocks(tc, path.dirname(file) === "<inline>" ? loaded.dir : path.dirname(file)) };
-    const result = await runFlow({ loaded, trigger: tc.trigger, runner: new MockRunner(mocks), persist: false });
+    const result = await runFlow({ loaded, trigger: tc.trigger, runner: new MockRunner(mocks), persist: false, cache: { enabled: false } });
     trace = result.trace;
     const exp = tc.expect;
     const expectedStatus = exp.status ?? (exp.error_type ? "failed" : "succeeded");

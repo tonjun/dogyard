@@ -76,6 +76,8 @@ export interface RunEvalOptions {
   /** Explicit mocks (e.g. from --mocks) override eval.yaml mocks; omit for real execution. */
   mocksFile?: string;
   limit?: number;
+  /** Use the step result cache (real execution only; never with mocks). Default false. */
+  cache?: boolean;
   onExample?: (r: ExampleResult, index: number, total: number) => void;
 }
 
@@ -93,7 +95,7 @@ export async function runEval(loaded: LoadedFlow, opts: RunEvalOptions = {}): Pr
   const results = await Promise.all(
     examples.map((ex, i) =>
       limit(async () => {
-        const r = await runExample(loaded, config, ex, i, runnerFactory());
+        const r = await runExample(loaded, config, ex, i, runnerFactory(), opts.cache === true);
         opts.onExample?.(r, i, examples.length);
         return r;
       }),
@@ -152,10 +154,10 @@ export function summarize(config: EvalConfig, results: Array<{ grades: GradeResu
   };
 }
 
-async function runExample(loaded: LoadedFlow, config: EvalConfig, ex: EvalExample, index: number, runner: CommandRunner): Promise<ExampleResult> {
+async function runExample(loaded: LoadedFlow, config: EvalConfig, ex: EvalExample, index: number, runner: CommandRunner, cache: boolean): Promise<ExampleResult> {
   const start = Date.now();
   const id = ex.id ?? `#${index + 1}`;
-  const run = await runFlow({ loaded, trigger: ex.trigger, runner, persist: false });
+  const run = await runFlow({ loaded, trigger: ex.trigger, runner, persist: false, cache: { enabled: cache && !(runner instanceof MockRunner) } });
   const grades: GradeResult[] = [];
   if (run.status === "succeeded") {
     for (const [gi, g] of config.graders.entries()) {
