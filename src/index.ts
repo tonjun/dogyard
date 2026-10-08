@@ -5,6 +5,7 @@ export * from "./graph.js";
 export * from "./loader.js";
 export * from "./validate.js";
 export * from "./trace.js";
+export * from "./progress.js";
 export * from "./scaffold.js";
 export * from "./schema/flow.js";
 export * from "./schema/project.js";

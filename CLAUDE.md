@@ -87,6 +87,13 @@ else in the flow folder). `run.ts`/`map.ts` probe it before `withRetry`; a hit
 stays `succeeded` with a `cache` field in the trace. Only successes are stored;
 Mock/Recording runners and `test` disable it, `eval` needs `--cache`.
 
+**Progress:** `progress.ts` derives per-step counts and ETAs purely from a
+`RunTrace` (`computeProgress`, seeded by `historicalItemMedians` from earlier
+traces). `cli/progress-display.ts` (`ProgressDisplay`) renders it on stderr
+for `run`/`resume` (via `onProgress`, with `RealRunner`'s streamed stderr
+routed through it so the live block isn't torn) and for `runs watch` (which
+polls `trace.json`).
+
 **Schemas:** `src/schema/*.ts` (Zod) define `flow.yaml`, `workflows.yaml`
 (project defaults), `*.test.yaml`, and `eval.yaml`/dataset shapes; these are
 the source of truth for what's valid in each YAML file, not the README.

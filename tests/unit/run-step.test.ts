@@ -17,11 +17,21 @@ const flow = {
     done: { type: "pass", input: '{ "score": steps.score.output.score }' },
     real: { type: "command", command: [node, "-e", "process.stdout.write(JSON.stringify({ got: JSON.parse(require('fs').readFileSync(0,'utf8')) }))"], input: "trigger" },
     boom: { type: "command", command: [node, "-e", "console.error('bad'); process.exit(3)"] },
+    pos: { type: "map", over: "trigger.xs", step: { type: "command", command: [node, "-e", "console.log(JSON.stringify(process.env.WF_ITEM_INDEX + '/' + process.env.WF_ITEM_TOTAL))"], input: '{ "i": index, "n": total }' } },
   },
 };
 const loaded = loadFlowFromObject(flow);
 
 describe("runStep", () => {
+  it("gives a map sub-step `total` and WF_ITEM_* env, defaulting total to index + 1", async () => {
+    const given = await runStep({ loaded, stepName: "pos", context: { trigger: {}, steps: {}, item: "x", index: 2, total: 5 } });
+    expect(given.status, JSON.stringify(given.error)).toBe("succeeded");
+    expect(given.input).toEqual({ i: 2, n: 5 });
+    expect(given.output).toBe("2/5");
+    const dflt = await runStep({ loaded, stepName: "pos", context: { trigger: {}, steps: {}, item: "x", index: 2 } });
+    expect(dflt.input).toEqual({ i: 2, n: 3 });
+  });
+
   it("resolves input and argv against the supplied context and parses the mock output", async () => {
     const r = await runStep({ loaded, stepName: "fetch", context: { trigger: { query: "cats" }, steps: {} }, runner: new MockRunner({ fetch: { output: { results: [1] } } }) });
     expect(r.status).toBe("succeeded");

@@ -31,6 +31,8 @@ export interface CommandRunner {
 export interface RealRunnerOptions {
   /** Stream each command's stderr to the parent process's stderr as it arrives, in addition to capturing it. */
   streamStderr?: boolean;
+  /** Where streamed stderr goes (default: process.stderr), e.g. a live progress display. */
+  writeStderr?: (text: string) => void;
 }
 
 /** Runs real subprocesses (no shell). Nonzero exit, timeout and spawn failures become FlowErrors. */
@@ -85,7 +87,11 @@ export class RealRunner implements CommandRunner {
       child.stdout?.setEncoding("utf8").on("data", (d: string) => { stdout += d; });
       child.stderr?.setEncoding("utf8").on("data", (d: string) => {
         stderr += d;
-        if (this.opts.streamStderr) process.stderr.write(gray(prefixLines(d, req.step, req.itemIndex)));
+        if (this.opts.streamStderr) {
+          const text = gray(prefixLines(d, req.step, req.itemIndex));
+          if (this.opts.writeStderr) this.opts.writeStderr(text);
+          else process.stderr.write(text);
+        }
       });
       child.on("error", (err: NodeJS.ErrnoException) => {
         fail(new FlowError("spawn_error", `Failed to start "${cmd}": ${err.message}`, { step: req.step, details: { code: err.code, argv: req.argv }, cause: err }));
@@ -116,9 +122,9 @@ export class RealRunner implements CommandRunner {
   }
 }
 
-/** Wraps text in ANSI gray, but only when writing to a real terminal. */
+/** Wraps each line in ANSI gray (so no color spills past a newline), but only when writing to a real terminal. */
 function gray(s: string): string {
-  return process.stderr.isTTY ? `\x1b[90m${s}\x1b[0m` : s;
+  return process.stderr.isTTY ? s.replace(/[^\n]+/g, (line) => `\x1b[90m${line}\x1b[0m`) : s;
 }
 
 /** Signal the child's whole process group (POSIX), falling back to the child alone. */

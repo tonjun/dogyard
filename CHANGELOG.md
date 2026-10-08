@@ -6,6 +6,34 @@ the flow schema may change between minor versions.
 
 ## [Unreleased]
 
+### Added
+- Live progress on stderr for `run`/`resume`: one status line per running
+  step, e.g. `analyze_posts  142/300  ● 3 failed  ● 2 caught  ● 40 cached
+  ETA 1h12m`. On a terminal it redraws in place with command stderr scrolling
+  above it. Otherwise a map's line is printed every 10 items or 30s, and once
+  when it ends. `-q` turns it off.
+- The ETA is the median wall time of the last 20 executed (not cached) items,
+  including retries and backoff, times the items left, divided by the map's
+  concurrency. Until the first item finishes it is seeded from earlier runs'
+  traces, and is shown as `~`.
+- `dogyard runs watch <flow> [run_id|latest]` follows a run from another
+  terminal by polling its trace. It shows the last error with its stderr tail
+  and exits with the run's exit code. `--json` streams NDJSON `progress` and
+  `end` events.
+- Map sub-steps see `total` (the item count) in JSONata, next to `item` and
+  `index`. Command sub-steps also get `WF_ITEM_INDEX` and `WF_ITEM_TOTAL` in
+  their environment. Step tests accept `context.total` (default `index + 1`).
+- `runs <flow>` shows each run's duration and map items done/total; `--json`
+  adds a `progress` field.
+- Traces record `started_at`/`ended_at` per map item and the map's effective
+  `max_concurrency`.
+- Library exports: `computeProgress`, `historicalItemMedians`, `runSummary`,
+  `formatStepLine`, `formatShortDuration`, `recentRuns`.
+
+### Fixed
+- Streamed command stderr is colored gray line by line, so the color no
+  longer spills onto the next line written to the terminal.
+
 ## [0.4.0] - 2026-10-09
 
 ### Added

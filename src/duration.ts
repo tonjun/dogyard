@@ -42,3 +42,14 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
+
+/** Compact h/m/s form for elapsed times and ETAs: "42s", "3m05s", "1h12m", "2d4h". */
+export function formatShortDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h${String(m % 60).padStart(2, "0")}m`;
+  return `${Math.floor(h / 24)}d${h % 24}h`;
+}

@@ -10,10 +10,12 @@ export interface ExecutionContext {
   steps: Record<string, StepContextEntry>;
   item?: unknown;
   index?: number;
+  /** Map sub-steps: number of items in the map. */
+  total?: number;
 }
 
 /** Build the JSONata evaluation context from the current step states. */
-export function buildContext(trigger: unknown, steps: Iterable<StepTrace>, extra?: { item: unknown; index: number }): ExecutionContext {
+export function buildContext(trigger: unknown, steps: Iterable<StepTrace>, extra?: { item: unknown; index: number; total?: number }): ExecutionContext {
   const ctx: ExecutionContext = { trigger, steps: {} };
   for (const s of steps) {
     const entry: StepContextEntry = { status: s.status };
@@ -23,6 +25,7 @@ export function buildContext(trigger: unknown, steps: Iterable<StepTrace>, extra
   if (extra) {
     ctx.item = extra.item;
     ctx.index = extra.index;
+    if (extra.total !== undefined) ctx.total = extra.total;
   }
   return ctx;
 }

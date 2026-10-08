@@ -134,7 +134,7 @@ steps:
     step:                                                 # command | transform | pass
       type: command
       command: ["llm-run", "--prompt-file", "../../prompts/summarize.md"]
-      input: '{ "text": item.body, "i": index }'         # `item` and `index` are bound
+      input: '{ "text": item.body, "i": index }'         # `item`, `index` and `total` are bound
       cache: { files: [../../prompts/summarize.md] }      # reuse earlier results per item (see Caching)
       catch:
         - { error_type: command_failure, result: { summary: "" } }
@@ -183,6 +183,9 @@ beginning with `=` are JSONata expressions; arrays expand to several arguments,
 set to the step's own `steps/<step>/` folder when that folder exists, otherwise
 the flow folder; an explicit `cwd` overrides this and resolves from the flow
 folder. Relative paths in `command` resolve from that working directory.
+A map's command sub-step also gets `WF_ITEM_INDEX` and `WF_ITEM_TOTAL` in its
+environment, so a script can report `[i/N]` without threading them through its
+input.
 
 **Output parsing.** `auto` parses stdout as JSON when it looks like JSON, else
 returns the trimmed text. `json` fails with `output_parse` if stdout is not JSON.
@@ -383,7 +386,8 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 | `validate <flow>` | Structural + reference + DAG + expression-syntax checks. `--json` for machine output. |
 | `run <flow> [--query <text> \| --input <json> \| --input-file <path>]` | Run once; the trigger is optional (defaults to `{}`). `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `--no-cache`, `--refresh <steps>`, `-q`. |
 | `resume <flow> <run_id> [--force]` | Continue a failed or interrupted run from its trace. Also `run --resume <run_id>`. |
-| `runs <flow>` / `runs show <flow> [run_id]` | List persisted runs (with cached/executed counts) / print one trace (the latest run when `run_id` is omitted or `latest`). |
+| `runs <flow>` / `runs show <flow> [run_id]` | List persisted runs (status, duration, map items done/total, cached/executed counts) / print one trace (the latest run when `run_id` is omitted or `latest`). |
+| `runs watch <flow> [run_id] [--json] [--interval 500ms]` | Follow a run from another terminal (the latest by default): live status lines, the last error with its stderr tail. Exits with the run's exit code when it ends. `--json` streams NDJSON `progress` events and a final `end` event. |
 | `cache ls <flow> [--step] [--json]` / `cache clear <flow> [--step] [--expired]` | Inspect or delete cached step results. |
 | `test <flow> [-k filter] [--step <name>] [--no-steps]` | Run `tests/*.test.yaml` with mocked commands plus every `steps/<step>/tests/*.test.yaml`. `--step` runs one step's tests only; `--no-steps` skips step tests. |
 | `eval <flow> [--step <name>] [--dataset] [--mocks] [--concurrency] [--limit] [--cache] [--report] [--json]` | Score a dataset and write a report. With `--step`, evaluate that step alone using `steps/<name>/evals/`. |
@@ -473,6 +477,7 @@ tests:
         fetch_sources: { results: [] }
       item: { body: "alpha alpha" }       # required when <step> is a map
       index: 0                            # selects the entry of an array mock
+      total: 3                            # map item count (default: index + 1)
     mock: { output: { results: [] } }     # exactly one of: mock | mocks_file | real: true
     # mocks_file: ../../../mocks/good.yaml   # uses mocks[<step>] from a flow mocks file
     # real: true                             # spawn the real command (cwd = steps/<step>/, else flow folder)
@@ -531,7 +536,26 @@ examples:
 Every run writes `trace.json` after each step or map-item state change
 (atomic rename), so a crash or Ctrl-C always leaves an accurate checkpoint.
 The trace records each step's status, input, output, attempts, errors, exit
-code, stderr, the selected choice branch and per-item map results.
+code, stderr, the selected choice branch and per-item map results (each with
+`started_at`/`ended_at`, plus the map's effective `max_concurrency`).
+
+### Live progress
+
+While a run is going, `run` and `resume` show one status line per running step
+on stderr, unless `-q` is set:
+
+```
+analyze_posts  142/300  ● 3 failed  ● 2 caught  ● 40 cached  ETA 1h12m
+```
+
+The ETA is the median wall time of the last 20 executed (not cached) items,
+including retries and backoff, times the items left, divided by the map's
+concurrency. Until an item finishes, the median comes from earlier runs'
+traces, and the ETA is shown as `~`. On a terminal the lines redraw in place,
+and command stderr scrolls above them. Otherwise a map's line is printed every
+10 items or 30 s, and once when it ends. `runs watch` renders the same view by
+polling `trace.json`. That makes it work from a second terminal, and it also
+works for a finished run.
 
 `resume <flow> <run_id>` reloads the flow, refuses if its definition changed
 (override with `--force`), keeps every `succeeded`/`caught` step and map item,

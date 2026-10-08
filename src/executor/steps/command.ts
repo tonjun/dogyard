@@ -20,6 +20,7 @@ export interface CommandStepOptions {
   signal?: AbortSignal;
   cwd?: string;
   itemIndex?: number;
+  itemTotal?: number;
 }
 
 /**
@@ -60,6 +61,8 @@ export function buildRequest(step: CommandStep, argv: string[], input: unknown, 
   if (opts.signal) req.signal = opts.signal;
   if (opts.cwd) req.cwd = opts.cwd;
   const env: Record<string, string> = { ...(step.env ?? {}) };
+  if (opts.itemIndex !== undefined) env.WF_ITEM_INDEX = String(opts.itemIndex);
+  if (opts.itemTotal !== undefined) env.WF_ITEM_TOTAL = String(opts.itemTotal);
 
   if (input !== undefined) {
     const json = JSON.stringify(input);
