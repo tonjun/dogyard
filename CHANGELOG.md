@@ -6,6 +6,28 @@ the flow schema may change between minor versions.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-09
+
+### Added
+- Step result cache: `cache:` on a `command` step (or a map's command
+  sub-step, cached per item) reuses an earlier successful output when its key
+  (input or a JSONata `key`, step definition, hashed `files`, `env` values) is
+  unchanged, with an optional `ttl`. Stored under `.dogyard/cache/`; only
+  successes are cached. Hits are recorded as `cache` in the trace.
+- `run`/`resume` flags `--no-cache` and `--refresh <steps>`, a
+  `Cache: N cached / M executed` summary, and cached/executed counts in
+  `runs <flow>`.
+- `dogyard cache ls|clear <flow> [--step] [--expired]`.
+- `eval --cache` to use the cache during flow evals with real execution.
+- Durations accept a `d` (days) unit.
+
+### Fixed
+- A timed-out or interrupted command is now killed with everything it started:
+  each command runs in its own process group (POSIX), which gets SIGTERM and
+  then SIGKILL after 2s, so a wrapper script's subprocesses can no longer delay
+  a map item's `timeout` or outlive the step. Failed map items now record
+  `duration_ms`. (Shipped as 0.3.1 without a changelog entry.)
+
 ## [0.3.0] - 2026-09-22
 
 First public release.
@@ -35,5 +57,6 @@ Initial development version: YAML DAG flows, command/transform/pass/choice/map
 steps, JSONata data flow, retry/catch, traces and resume, fixture tests, evals,
 per-step tests and evals, and step-level `mock:`.
 
-[Unreleased]: https://github.com/tonjun/dogyard/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/tonjun/dogyard/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/tonjun/dogyard/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/tonjun/dogyard/releases/tag/v0.3.0
