@@ -12,15 +12,15 @@ const EXAMPLES = path.join(ROOT, "examples");
 
 interface Exec { code: number | null; stdout: string; stderr: string; }
 
-function cli(args: string[], opts: { cwd?: string; signalAfterMs?: number; timeout?: number } = {}): Promise<Exec> {
+function cli(args: string[], opts: { cwd?: string; signalWhen?: () => boolean; timeout?: number } = {}): Promise<Exec> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [TSX_CLI, CLI, ...args], { cwd: opts.cwd ?? ROOT, env: { ...process.env, FORCE_COLOR: "0" } });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
     child.stderr.on("data", (d) => (stderr += d));
-    if (opts.signalAfterMs) setTimeout(() => child.kill("SIGINT"), opts.signalAfterMs);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    const poll = opts.signalWhen && setInterval(() => { if (opts.signalWhen!()) { clearInterval(poll); child.kill("SIGINT"); } }, 25);
+    child.on("close", (code) => { if (poll) clearInterval(poll); resolve({ code, stdout, stderr }); });
   });
 }
 
@@ -335,8 +335,20 @@ describe("resume", () => {
     rmSync(path.join(dir, ".runs"), { recursive: true, force: true });
     const marker = path.join(work, "marker3");
     writeFileSync(marker, "");
-    const r = await cli(["run", dir, "--input", JSON.stringify({ marker, delay_ms: 400 }), "-q"], { signalAfterMs: 2000 });
-    expect(r.code).toBe(130);
+    // Signal once the checkpointed trace shows a finished map item, rather than after a fixed delay:
+    // on a fast machine the whole run can finish first, printing output without a run_id.
+    const oneItemDone = () => {
+      const runs = path.join(dir, ".runs");
+      if (!existsSync(runs)) return false;
+      return readdirSync(runs).some((id) => {
+        try {
+          const t = json(readFileSync(path.join(runs, id, "trace.json"), "utf8"));
+          return t.steps.find((s: { name: string }) => s.name === "slow_map")?.items?.some((i: { status: string }) => i.status === "succeeded");
+        } catch { return false; }
+      });
+    };
+    const r = await cli(["run", dir, "--input", JSON.stringify({ marker, delay_ms: 1000 }), "-q"], { signalWhen: oneItemDone });
+    expect(r.code, r.stdout + r.stderr).toBe(130);
     const runId = json(r.stdout).run_id as string;
     const trace = json(readFileSync(path.join(dir, ".runs", runId, "trace.json"), "utf8"));
     expect(trace.status).toBe("interrupted");
