@@ -33,10 +33,21 @@ export function resolveStepCwd(flowDir: string, stepName: string, step: Pick<Com
   return existsSync(stepDir) ? stepDir : flowDir;
 }
 
-/** Resolve input + argv, dispatch to the runner, parse stdout per `output_mode`. */
-export async function executeCommandStep(step: CommandStep, ctx: ExecutionContext, opts: CommandStepOptions): Promise<CommandStepOutcome> {
+export interface CommandInvocation {
+  input: unknown;
+  argv: string[];
+}
+
+/** Resolve a command step's input and templated argv against the context. */
+export async function resolveCommandInvocation(step: CommandStep, ctx: ExecutionContext): Promise<CommandInvocation> {
   const input = step.input !== undefined ? await evaluateExpression(step.input, ctx) : undefined;
   const argv = await resolveTemplatedArgs(step.command, ctx);
+  return { input, argv };
+}
+
+/** Resolve input + argv, dispatch to the runner, parse stdout per `output_mode`. */
+export async function executeCommandStep(step: CommandStep, ctx: ExecutionContext, opts: CommandStepOptions): Promise<CommandStepOutcome> {
+  const { input, argv } = await resolveCommandInvocation(step, ctx);
   const req = buildRequest(step, argv, input, opts);
   const result = await opts.runner.run(req);
   return { output: parseOutput(result.stdout, step.output_mode, opts.stepName), argv, input, result };

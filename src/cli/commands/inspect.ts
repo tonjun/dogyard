@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Command } from "commander";
 import { buildGraph, exportGraph, type GraphFormat } from "../../graph.js";
 import { FLOW_FILENAMES, LoadError, loadFlow } from "../../loader.js";
-import { latestRun, listRuns, readTrace, runsDir, traceFile } from "../../trace.js";
+import { cacheStats, latestRun, listRuns, readTrace, runsDir, traceFile } from "../../trace.js";
 import { formatDiagnostics, validateFlow } from "../../validate.js";
 import { fail, loadValidFlow, log, printJson } from "../util.js";
 
@@ -108,10 +108,12 @@ export function registerInspect(program: Command): void {
     .action((flowPath: string, flags: { traceDir?: string; json?: boolean }) => {
       const loaded = loadValidFlow(flowPath);
       const all = listRuns(loaded.dir, flags.traceDir);
-      if (flags.json) return printJson(all.map((t) => ({ run_id: t.run_id, status: t.status, started_at: t.started_at, ended_at: t.ended_at, resume_count: t.resume_count, terminal_step: t.terminal_step, error: t.error })));
+      if (flags.json) return printJson(all.map((t) => ({ run_id: t.run_id, status: t.status, started_at: t.started_at, ended_at: t.ended_at, resume_count: t.resume_count, terminal_step: t.terminal_step, error: t.error, cache: cacheStats(t) })));
       if (!all.length) return log("No runs found");
       for (const t of all) {
-        process.stdout.write(`${t.run_id}  ${t.status.padEnd(11)}  ${t.started_at}  resumes=${t.resume_count}${t.error ? `  ${t.error.type}: ${t.error.message}` : ""}\n`);
+        const c = cacheStats(t);
+        const cache = c.cached || c.executed ? `  cached=${c.cached} executed=${c.executed}` : "";
+        process.stdout.write(`${t.run_id}  ${t.status.padEnd(11)}  ${t.started_at}  resumes=${t.resume_count}${cache}${t.error ? `  ${t.error.type}: ${t.error.message}` : ""}\n`);
       }
     });
   runs

@@ -52,6 +52,19 @@ const commonStepFields = {
   description: z.string().optional(),
 };
 
+export const cacheConfigSchema = z
+  .object({
+    /** JSONata over the resolved step input (`$`); default = the whole input plus argv. */
+    key: z.string().optional(),
+    /** Files (simple globs) hashed into the key, relative to the step cwd. */
+    files: z.array(z.string()).optional(),
+    /** Env var names whose values are hashed into the key. */
+    env: z.array(z.string()).optional(),
+    ttl: durationSchema.optional(),
+  })
+  .strict();
+export type CacheConfig = z.infer<typeof cacheConfigSchema>;
+
 export const INPUT_MODES = ["stdin", "args", "env"] as const;
 export const OUTPUT_MODES = ["auto", "json", "text", "lines"] as const;
 
@@ -68,6 +81,8 @@ export const commandStepSchema = z
      * YAML/JSON file holding one; an array gives per-item results for a map sub-step.
      */
     mock: z.union([z.string(), mockEntrySchema]).optional(),
+    /** Reuse an earlier successful result when the cache key is unchanged (`true` = defaults). */
+    cache: z.union([z.literal(true), cacheConfigSchema]).optional(),
     ...commonStepFields,
   })
   .strict();

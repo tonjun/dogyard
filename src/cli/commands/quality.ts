@@ -85,12 +85,13 @@ export function registerQuality(program: Command): void {
     .option("--mocks <file>", "serve command output from a mocks YAML file instead of executing")
     .option("--concurrency <n>", "examples to run in parallel")
     .option("--limit <n>", "only run the first <n> examples")
+    .option("--cache", "use the step result cache (flow evals with real execution only)")
     .option("--report <file>", "where to write the JSON report (default: evals/reports/<timestamp>.json)")
     .option("--no-report", "do not write a report file")
     .option("--json", "print the full report as JSON to stdout")
     .option("-v, --verbose", "print trigger/output for failing examples")
     .option("--no-project", "ignore project-level workflows.yaml config")
-    .action(async (flowPath: string, flags: { step?: string; config?: string; dataset?: string; mocks?: string; concurrency?: string; limit?: string; report?: string | boolean; json?: boolean; verbose?: boolean; project?: boolean }) => {
+    .action(async (flowPath: string, flags: { step?: string; config?: string; dataset?: string; mocks?: string; concurrency?: string; limit?: string; cache?: boolean; report?: string | boolean; json?: boolean; verbose?: boolean; project?: boolean }) => {
       const loaded = loadValidFlow(flowPath, { project: flags.project !== false });
       const opts: Omit<RunEvalOptions, "onExample"> = {};
       if (flags.config) opts.configFile = flags.config;
@@ -98,6 +99,10 @@ export function registerQuality(program: Command): void {
       if (flags.mocks) opts.mocksFile = flags.mocks;
       if (flags.concurrency) opts.concurrency = Number(flags.concurrency);
       if (flags.limit) opts.limit = Number(flags.limit);
+      if (flags.cache) {
+        if (flags.step !== undefined) fail("--cache is not supported with --step");
+        opts.cache = true;
+      }
       const onExample = (r: { id: string; passed: boolean; score: number; durationMs: number }, i: number, total: number) =>
         log(`[${i + 1}/${total}] ${r.id}: ${r.passed ? "pass" : "FAIL"} (score ${r.score.toFixed(2)}, ${r.durationMs}ms)`);
       const report: EvalReport | StepEvalReport =

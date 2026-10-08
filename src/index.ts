@@ -18,6 +18,7 @@ export * from "./executor/run-step.js";
 export * from "./executor/command-runner.js";
 export * from "./executor/context.js";
 export * from "./executor/inline-mocks.js";
+export * from "./executor/cache.js";
 export * from "./testing/run-tests.js";
 export * from "./testing/run-step-tests.js";
 export * from "./eval/run-eval.js";

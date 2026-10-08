@@ -88,7 +88,8 @@ function withoutMocks(raw: unknown): unknown {
   return { ...raw, steps: Object.fromEntries(Object.entries(raw.steps).map(([k, v]) => [k, strip(v)])) };
 }
 
-function stableStringify(v: unknown): string {
+/** JSON with object keys sorted, so equal values always serialise (and hash) the same. */
+export function stableStringify(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
   if (v && typeof v === "object") {
     const o = v as Record<string, unknown>;

@@ -6,7 +6,8 @@ import { buildGraph, type FlowGraph } from "../graph.js";
 import type { LoadedFlow } from "../loader.js";
 import type { FlowDefinition, RetryPolicy, Step } from "../schema/flow.js";
 import { newRunId, now, traceFile, writeTrace, type RunTrace, type StepTrace } from "../trace.js";
-import { RealRunner, type CommandRunner } from "./command-runner.js";
+import { cacheRoot, hitTrace, probeCache, storeResult, type CacheContext } from "./cache.js";
+import { MockRunner, RealRunner, RecordingRunner, type CommandRunner } from "./command-runner.js";
 import { buildContext } from "./context.js";
 import { withRetry } from "./retry.js";
 import { executeChoiceStep } from "./steps/choice.js";
@@ -28,6 +29,13 @@ export interface RunOptions {
   resume?: RunTrace;
   /** Fired after every checkpoint. */
   onProgress?: (trace: RunTrace) => void;
+  /**
+   * Step result cache for steps that declare `cache`. Enabled by default, except
+   * with a MockRunner/RecordingRunner (mocked output must never enter the store,
+   * and a recording must see every command). `refresh` steps skip the lookup but
+   * still store their fresh result.
+   */
+  cache?: { enabled?: boolean; refresh?: string[] };
 }
 
 export interface RunResult {
@@ -78,6 +86,11 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
     if (persist) writeTrace(file, trace);
     opts.onProgress?.(trace);
   };
+
+  const cacheEnabled = opts.cache?.enabled ?? !(runner instanceof MockRunner || runner instanceof RecordingRunner);
+  const cache: CacheContext | undefined = cacheEnabled
+    ? { root: cacheRoot(loaded), flow: flow.name, runId: trace.run_id, refresh: new Set(opts.cache?.refresh ?? []) }
+    : undefined;
 
   const states = new Map<string, StepTrace>(trace.steps.map((s) => [s.name, s]));
   const controller = new AbortController();
@@ -236,6 +249,7 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
     st.started_at = now();
     delete st.error;
     delete st.skip_reason;
+    delete st.cache;
     checkpoint();
 
     const ctx = buildContext(trace.trigger, states.values());
@@ -243,12 +257,22 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
     const retry = step.retry ?? defaultRetry;
 
     try {
-      const value = await withRetry(retry, st.attempts, () => runStepBody(step, st, ctx, stepTimeout), {
-        signal,
-        step: name,
-        onAttempt: () => checkpoint(),
-      });
-      st.output = value;
+      const probe = step.type === "command" ? await probeCache(cache, name, step, ctx, resolveStepCwd(loaded.dir, name, step)) : undefined;
+      if (probe?.hit) {
+        st.input = probe.invocation.input;
+        st.argv = probe.invocation.argv;
+        st.output = probe.hit.output;
+        st.cache = hitTrace(probe);
+      } else {
+        if (probe) st.cache = { key: probe.key, hit: false };
+        const value = await withRetry(retry, st.attempts, () => runStepBody(step, st, ctx, stepTimeout), {
+          signal,
+          step: name,
+          onAttempt: () => checkpoint(),
+        });
+        st.output = value;
+        if (probe) st.cache = storeResult(probe, value, { duration_ms: Date.now() - Date.parse(st.started_at!) });
+      }
       st.status = "succeeded";
     } catch (err) {
       const fe = toFlowError(err, name);
@@ -339,6 +363,7 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
         };
         if (itemTimeout !== undefined) o.itemTimeout = itemTimeout;
         if (st.items) o.items = st.items;
+        if (cache) o.cache = cache;
         const r = await executeMapStep(step, ctx, o);
         st.input = r.input;
         st.items = r.items;

@@ -1,6 +1,8 @@
 import { buildGraph, type FlowGraph } from "./graph.js";
 import { checkExpressionSyntax } from "./expr.js";
+import { cacheConfigOf, expandGlob } from "./executor/cache.js";
 import { commandStepsByName, resolveStepMock } from "./executor/inline-mocks.js";
+import { resolveStepCwd } from "./executor/steps/command.js";
 import { LoadError, parseFlow } from "./loader.js";
 import type { FlowDefinition, Step } from "./schema/flow.js";
 import { SCHEMA_VERSION } from "./schema/flow.js";
@@ -82,6 +84,18 @@ export function validateFlow(flow: FlowDefinition, opts: ValidateOptions = {}): 
       checkStepCommon(step.step, `${name}.step`, warn);
     }
     if (step.type === "command" && step.command.length === 0) err(`command must not be empty`, name);
+  }
+
+  for (const { name, label, step } of commandStepsByName(flow)) {
+    const cache = cacheConfigOf(step);
+    if (!cache) continue;
+    checkExpr(cache.key, "cache.key", label);
+    if (opts.dir) {
+      const cwd = resolveStepCwd(opts.dir, name, step);
+      for (const f of cache.files ?? []) {
+        if (!expandGlob(f, cwd).length) warn(`cache.files entry "${f}" matches no files (relative to ${cwd})`, label);
+      }
+    }
   }
 
   for (const { name, label, step } of commandStepsByName(flow)) {
