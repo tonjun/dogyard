@@ -94,6 +94,12 @@ for `run`/`resume` (via `onProgress`, with `RealRunner`'s streamed stderr
 routed through it so the live block isn't torn) and for `runs watch` (which
 polls `trace.json`).
 
+**Background runs:** `run`/`resume --detach` (`cli/background.ts`) re-spawn the
+CLI detached with a pre-assigned run id (`RunOptions.runId`, hidden `--run-id`)
+and args rebuilt from commander's parsed options (`optionArgs`). Stderr goes to
+`.runs/<run_id>/run.log`, stdout to `stdout.json`, plus `pid`/`trigger.json`.
+`runs logs`/`runs stop` use those; `runs watch` checks the pid is still alive.
+
 **Schemas:** `src/schema/*.ts` (Zod) define `flow.yaml`, `workflows.yaml`
 (project defaults), `*.test.yaml`, and `eval.yaml`/dataset shapes; these are
 the source of truth for what's valid in each YAML file, not the README.
@@ -117,6 +123,7 @@ flows/<name>/
   steps/<step>/evals/eval.yaml       per-step eval config + dataset.yaml
   steps/<step>/evals/reports/
   .runs/<run_id>/trace.json
+  .runs/<run_id>/run.log, pid, stdout.json, trigger.json   (--detach runs)
 ```
 
 Four runnable examples live under `examples/flows/` (`hello`, `research`,

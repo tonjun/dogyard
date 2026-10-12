@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
 import { formatShortDuration, parseDuration, sleep } from "../../duration.js";
@@ -6,6 +6,7 @@ import { buildGraph, exportGraph, type GraphFormat } from "../../graph.js";
 import { FLOW_FILENAMES, LoadError, loadFlow } from "../../loader.js";
 import { computeProgress, historicalItemMedians, runSummary, type RunProgress } from "../../progress.js";
 import { cacheStats, latestRun, listRuns, readTrace, recentRuns, runsDir, traceFile, type RunTrace } from "../../trace.js";
+import { isAlive, readRunPid, runLogFile, runProcessAlive } from "../background.js";
 import { ProgressDisplay, stepTransitionLogger } from "../progress-display.js";
 import { formatDiagnostics, validateFlow } from "../../validate.js";
 import { fail, loadValidFlow, log, printJson } from "../util.js";
@@ -144,25 +145,106 @@ export function registerInspect(program: Command): void {
     .option("--interval <duration>", "how often to poll the trace file", "500ms")
     .action(async (flowPath: string, runId: string | undefined, flags: { traceDir?: string; json?: boolean; interval: string }) => {
       const loaded = loadValidFlow(flowPath);
-      let id = runId;
-      if (id === undefined || id === "latest") {
-        id = recentRuns(loaded.dir, 1, flags.traceDir)[0]?.run_id;
-        if (!id) fail(`No runs found under ${runsDir(loaded.dir, flags.traceDir)}`);
-      }
+      const id = resolveRunId(loaded.dir, runId, flags.traceDir);
       const file = traceFile(loaded.dir, id, flags.traceDir);
       if (!existsSync(file)) fail(`No trace at ${file}`);
       await watchRun(file, {
         json: flags.json ?? false,
         interval: parseDuration(flags.interval),
         history: historicalItemMedians(recentRuns(loaded.dir, 11, flags.traceDir), id),
+        alive: () => runProcessAlive(loaded.dir, id, flags.traceDir),
       });
     });
+  runs
+    .command("logs <flow> [run_id]")
+    .description("Print a --detach run's stderr log (the latest run if no run_id, or run_id is `latest`)")
+    .option("--trace-dir <dir>", "directory holding run traces")
+    .option("-f, --follow", "keep printing new output until the run ends")
+    .option("--interval <duration>", "with --follow: how often to poll the log", "500ms")
+    .action(async (flowPath: string, runId: string | undefined, flags: { traceDir?: string; follow?: boolean; interval: string }) => {
+      const loaded = loadValidFlow(flowPath);
+      const id = resolveRunId(loaded.dir, runId, flags.traceDir);
+      const logFile = runLogFile(loaded.dir, id, flags.traceDir);
+      if (!existsSync(logFile)) fail(`No log at ${logFile} (only runs started with --detach keep one)`);
+      await tailLog(logFile, {
+        follow: flags.follow ?? false,
+        interval: parseDuration(flags.interval),
+        trace: traceFile(loaded.dir, id, flags.traceDir),
+        alive: () => runProcessAlive(loaded.dir, id, flags.traceDir),
+      });
+    });
+  runs
+    .command("stop <flow> [run_id]")
+    .description("Interrupt a --detach run (SIGTERM); its trace records `interrupted` and it can be resumed")
+    .option("--trace-dir <dir>", "directory holding run traces")
+    .action((flowPath: string, runId: string | undefined, flags: { traceDir?: string }) => {
+      const loaded = loadValidFlow(flowPath);
+      const id = resolveRunId(loaded.dir, runId, flags.traceDir);
+      const pid = readRunPid(loaded.dir, id, flags.traceDir);
+      if (pid === undefined) fail(`Run ${id} has no pid file (only runs started with --detach can be stopped)`);
+      const file = traceFile(loaded.dir, id, flags.traceDir);
+      const status = existsSync(file) ? readTrace(file).status : undefined;
+      if (status && status !== "running") fail(`Run ${id} is not running (${status})`);
+      if (!isAlive(pid)) fail(`Run ${id}'s process (pid ${pid}) is not running`);
+      process.kill(pid, "SIGTERM");
+      log(`Sent SIGTERM to run ${id} (pid ${pid})`);
+    });
+}
+
+/** `undefined`/`latest` → the most recent run id. */
+function resolveRunId(flowDir: string, runId: string | undefined, traceDir?: string): string {
+  if (runId !== undefined && runId !== "latest") return runId;
+  const id = recentRuns(flowDir, 1, traceDir)[0]?.run_id;
+  if (!id) fail(`No runs found under ${runsDir(flowDir, traceDir)}`);
+  return id;
+}
+
+/** Print a log file; with `follow`, keep printing appended bytes until the run's trace leaves `running` or its process dies. */
+async function tailLog(file: string, opts: { follow: boolean; interval: number; trace: string; alive: () => boolean }): Promise<void> {
+  let offset = 0;
+  const drain = () => {
+    const fd = openSync(file, "r");
+    try {
+      const buf = Buffer.alloc(64 * 1024);
+      for (;;) {
+        const n = readSync(fd, buf, 0, buf.length, offset);
+        if (n <= 0) break;
+        process.stdout.write(buf.subarray(0, n));
+        offset += n;
+      }
+    } finally {
+      closeSync(fd);
+    }
+  };
+  const running = () => {
+    try {
+      return readTrace(opts.trace).status === "running";
+    } catch {
+      return true; // missing or mid-write
+    }
+  };
+  drain();
+  if (!opts.follow) return;
+  for (;;) {
+    // Check before draining so the final lines written before the run ended are printed.
+    let done = !running();
+    // Re-read after the liveness check: the run may have finished and exited in between.
+    const dead = !done && !opts.alive() && !(done = !running());
+    drain();
+    if (done) return;
+    if (dead) {
+      log("Run process exited without finishing its trace");
+      process.exitCode = 1;
+      return;
+    }
+    await sleep(opts.interval);
+  }
 }
 
 const STDERR_TAIL_LINES = 5;
 
 /** Poll a trace file (written by atomic rename, so fs.watch is unreliable) and render its progress until the run ends. */
-async function watchRun(file: string, opts: { json: boolean; interval: number; history: Record<string, number> }): Promise<void> {
+async function watchRun(file: string, opts: { json: boolean; interval: number; history: Record<string, number>; alive: () => boolean }): Promise<void> {
   const tty = Boolean(process.stderr.isTTY);
   let mtime = 0;
   let trace: RunTrace | undefined;
@@ -204,6 +286,11 @@ async function watchRun(file: string, opts: { json: boolean; interval: number; h
         }
       }
       if (trace && trace.status !== "running") break;
+      // The process may have written its final trace and exited since the stat above; loop once more if so.
+      if (trace && !changed && !opts.alive() && statSync(file).mtimeMs === mtime) {
+        display?.stop();
+        fail(`Run ${trace.run_id}'s process exited without finishing its trace (status is still running)`);
+      }
       await sleep(opts.interval);
     }
   } finally {

@@ -36,6 +36,8 @@ export interface RunOptions {
    * still store their fresh result.
    */
   cache?: { enabled?: boolean; refresh?: string[] };
+  /** Use this run id for a fresh run instead of generating one (e.g. a detached run whose id was announced up front). */
+  runId?: string;
 }
 
 export interface RunResult {
@@ -66,7 +68,7 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
 
   const trace: RunTrace = opts.resume ?? {
     schema_version: 1,
-    run_id: newRunId(),
+    run_id: opts.runId ?? newRunId(),
     flow: { name: flow.name, version: flow.version, hash: loaded.hash, dir: loaded.dir },
     status: "running",
     started_at: now(),

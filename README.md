@@ -369,6 +369,7 @@ flows/<name>/
     evals/dataset.yaml   (or .jsonl) { id?, context, expected? } examples
     evals/reports/       written by `eval --step <step>`
   .runs/<run_id>/trace.json
+  .runs/<run_id>/run.log      with --detach: stderr log (also pid, trigger.json, stdout.json)
   .dogyard/cache/        step result cache (when there is no workflows.yaml)
 workflows.yaml           optional project-level defaults (discovered by walking up)
 .dogyard/cache/<flow>/   step result cache, next to workflows.yaml
@@ -384,10 +385,12 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 | `new <name> [--dir flows]` | Scaffold a flow folder with a sample test, eval and `steps/shout/` step folder. |
 | `new-step <flow> <step> [--force]` | Scaffold `steps/<step>/` (starter test + eval) for an existing command step. |
 | `validate <flow>` | Structural + reference + DAG + expression-syntax checks. `--json` for machine output. |
-| `run <flow> [--query <text> \| --input <json> \| --input-file <path>]` | Run once; the trigger is optional (defaults to `{}`). `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `--no-cache`, `--refresh <steps>`, `-q`. |
-| `resume <flow> <run_id> [--force]` | Continue a failed or interrupted run from its trace. Also `run --resume <run_id>`. |
+| `run <flow> [--query <text> \| --input <json> \| --input-file <path>]` | Run once; the trigger is optional (defaults to `{}`). `--trace` prints the trace, `--mocks <file>` replays mocks, `--record <file>` saves real command output as mocks, `--max-concurrency`, `--run-timeout`, `--trace-dir`, `--no-trace-file`, `--no-cache`, `--refresh <steps>`, `-q`, `--detach` (run in the background; see below). |
+| `resume <flow> <run_id> [--force] [--detach]` | Continue a failed or interrupted run from its trace. Also `run --resume <run_id>`. |
 | `runs <flow>` / `runs show <flow> [run_id]` | List persisted runs (status, duration, map items done/total, cached/executed counts) / print one trace (the latest run when `run_id` is omitted or `latest`). |
 | `runs watch <flow> [run_id] [--json] [--interval 500ms]` | Follow a run from another terminal (the latest by default): live status lines, the last error with its stderr tail. Exits with the run's exit code when it ends. `--json` streams NDJSON `progress` events and a final `end` event. |
+| `runs logs <flow> [run_id] [-f] [--interval 500ms]` | Print a `--detach` run's stderr log (`run.log`); `-f` follows it until the run ends. |
+| `runs stop <flow> [run_id]` | Send SIGTERM to a `--detach` run; its trace records `interrupted` and it can be resumed. |
 | `cache ls <flow> [--step] [--json]` / `cache clear <flow> [--step] [--expired]` | Inspect or delete cached step results. |
 | `test <flow> [-k filter] [--step <name>] [--no-steps]` | Run `tests/*.test.yaml` with mocked commands plus every `steps/<step>/tests/*.test.yaml`. `--step` runs one step's tests only; `--no-steps` skips step tests. |
 | `eval <flow> [--step <name>] [--dataset] [--mocks] [--concurrency] [--limit] [--cache] [--report] [--json]` | Score a dataset and write a report. With `--step`, evaluate that step alone using `steps/<name>/evals/`. |
@@ -556,6 +559,16 @@ and command stderr scrolls above them. Otherwise a map's line is printed every
 10 items or 30 s, and once when it ends. `runs watch` renders the same view by
 polling `trace.json`. That makes it work from a second terminal, and it also
 works for a finished run.
+
+`run --detach` (and `resume --detach`) starts the run as a background process
+in its own session, prints `{ run_id, pid, log, trace }` and returns, so the run
+outlives the terminal or SSH connection. The child's stderr (step transitions,
+map progress lines, streamed command stderr) is appended to
+`.runs/<run_id>/run.log` and its output JSON goes to `stdout.json`. Later,
+follow it with `runs logs <flow> -f` or `runs watch <flow>`, and interrupt it
+with `runs stop <flow>`. `-q` only quiets the launcher; the log always has the
+full progress. `runs logs -f` and `runs watch` exit with an error if the
+process dies without finishing its trace.
 
 `resume <flow> <run_id>` reloads the flow, refuses if its definition changed
 (override with `--force`), keeps every `succeeded`/`caught` step and map item,

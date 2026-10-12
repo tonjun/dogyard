@@ -438,3 +438,82 @@ describe("runs watch", () => {
     expect(watched.stderr).toMatch(/last error: wait_for_marker /);
   });
 });
+
+describe("--detach", () => {
+  const until = async (cond: () => boolean, ms = 15_000) => {
+    const deadline = Date.now() + ms;
+    while (!cond() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+    expect(cond()).toBe(true);
+  };
+  const status = (trace: string) => (existsSync(trace) ? (json(readFileSync(trace, "utf8")) as { status: string }).status : undefined);
+
+  it("runs in the background, logging stderr to run.log and the output to stdout.json", async () => {
+    const r = await cli(["run", hello, "--query", "hi", "--detach"]);
+    expect(r.code, r.stderr).toBe(0);
+    const launched = json(r.stdout) as { run_id: string; pid: number; log: string; trace: string };
+    expect(r.stderr).toMatch(new RegExp(`Run ${launched.run_id} started in background \\(pid ${launched.pid}\\)`));
+    await until(() => status(launched.trace) === "succeeded");
+
+    const logs = await cli(["runs", "logs", hello, launched.run_id, "-f", "--interval", "50ms"]);
+    expect(logs.code, logs.stderr).toBe(0);
+    expect(logs.stdout).toMatch(new RegExp(`^=== \\S+ run ${launched.run_id} pid=${launched.pid} ===`));
+    expect(logs.stdout).toMatch(/\[succeeded {2}\] short/);
+    expect(logs.stdout).toMatch(new RegExp(`Run ${launched.run_id} succeeded`));
+    expect(json(readFileSync(path.join(path.dirname(launched.trace), "stdout.json"), "utf8"))).toMatchObject({ value: "HI" });
+  });
+
+  it("can be stopped and resumed in the background", async () => {
+    const dir = path.join(work, "examples/flows/flaky-detach");
+    cpSync(flaky, dir, { recursive: true });
+    rmSync(path.join(dir, ".runs"), { recursive: true, force: true });
+    const marker = path.join(work, "detach-marker");
+    writeFileSync(marker, "");
+
+    // -q only quiets the launcher; the child still logs its progress.
+    const r = await cli(["run", dir, "--input", JSON.stringify({ marker, delay_ms: 2000 }), "--detach", "-q"]);
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stderr).toBe("");
+    const { run_id: runId, trace } = json(r.stdout) as { run_id: string; trace: string };
+    await until(() => readFileSync(path.join(path.dirname(trace), "run.log"), "utf8").includes("[running    ] slow_map"));
+
+    const stop = await cli(["runs", "stop", dir, runId]);
+    expect(stop.code, stop.stderr).toBe(0);
+    await until(() => status(trace) === "interrupted");
+
+    const resumed = await cli(["resume", dir, runId, "--detach"]);
+    expect(resumed.code, resumed.stderr).toBe(0);
+    const watched = await cli(["runs", "watch", dir, runId, "--interval", "50ms"]);
+    expect(watched.code, watched.stderr).toBe(0);
+    const log = (await cli(["runs", "logs", dir, "latest"])).stdout;
+    expect(log).toMatch(/Received SIGTERM/);
+    expect(log).toMatch(new RegExp(`=== \\S+ resume ${runId} pid=\\d+ ===`));
+    expect(log).toMatch(/\[succeeded {2}\] done/);
+  });
+
+  it("reports a run whose process died without finishing its trace", async () => {
+    const r = await cli(["run", hello, "--query", "hi", "-q", "--trace"]);
+    const runId = json(r.stdout).run_id as string;
+    const runDir = path.join(hello, ".runs", runId);
+    const trace = json(readFileSync(path.join(runDir, "trace.json"), "utf8"));
+    writeFileSync(path.join(runDir, "trace.json"), JSON.stringify({ ...trace, status: "running" }));
+    writeFileSync(path.join(runDir, "run.log"), "partial\n");
+    writeFileSync(path.join(runDir, "pid"), "999999\n");
+    const watched = await cli(["runs", "watch", hello, runId, "--interval", "50ms"]);
+    expect(watched.code).toBe(1);
+    expect(watched.stderr).toMatch(/process exited without finishing its trace/);
+    const logs = await cli(["runs", "logs", hello, runId, "-f", "--interval", "50ms"]);
+    expect(logs.code).toBe(1);
+    expect(logs.stdout).toBe("partial\n");
+    expect(logs.stderr).toMatch(/exited without finishing its trace/);
+    rmSync(runDir, { recursive: true, force: true });
+  });
+
+  it("rejects --detach with --no-trace-file or --trace, and logs/stop for runs without one", async () => {
+    expect((await cli(["run", hello, "--detach", "--no-trace-file"])).stderr).toMatch(/--detach needs a trace file/);
+    expect((await cli(["run", hello, "--detach", "--trace"])).stderr).toMatch(/drop --trace/);
+    const r = await cli(["run", hello, "--query", "x", "-q", "--trace"]);
+    const runId = json(r.stdout).run_id as string;
+    expect((await cli(["runs", "logs", hello, runId])).stderr).toMatch(/only runs started with --detach keep one/);
+    expect((await cli(["runs", "stop", hello, runId])).stderr).toMatch(/no pid file/);
+  });
+});

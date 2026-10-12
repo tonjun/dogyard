@@ -1,7 +1,7 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import type { Command } from "commander";
+import { Option, type Command } from "commander";
 import { parseDuration } from "../../duration.js";
 import { FlowError } from "../../errors.js";
 import { prepareResume } from "../../executor/checkpoint.js";
@@ -10,7 +10,8 @@ import { runFlow, type RunOptions, type RunResult } from "../../executor/run.js"
 import { loadMocksFile } from "../../testing/run-tests.js";
 import type { LoadedFlow } from "../../loader.js";
 import { historicalItemMedians } from "../../progress.js";
-import { cacheStats, readTrace, recentRuns, traceFile, type RunTrace } from "../../trace.js";
+import { cacheStats, newRunId, readTrace, recentRuns, traceFile, type RunTrace } from "../../trace.js";
+import { launchDetached, optionArgs } from "../background.js";
 import { ProgressDisplay, stepTransitionLogger } from "../progress-display.js";
 import { fail, loadValidFlow, log, printJson, resolveTrigger } from "../util.js";
 
@@ -29,7 +30,16 @@ interface CommonRunFlags {
   quiet?: boolean;
   cache?: boolean;
   refresh?: string;
+  detach?: boolean;
 }
+
+/** Set in a detached child's environment; it prefixes the log with a header line. */
+const DETACHED_ENV = "DOGYARD_DETACHED";
+/**
+ * Options the parent consumes and never forwards to a detached child. `quiet`
+ * only silences the launcher: the child's log always gets the full progress.
+ */
+const PARENT_ONLY = ["detach", "query", "input", "inputFile", "resume", "runId", "quiet"];
 
 function addCommonRunFlags(cmd: Command): Command {
   return cmd
@@ -43,7 +53,8 @@ function addCommonRunFlags(cmd: Command): Command {
     .option("--no-project", "ignore project-level workflows.yaml config")
     .option("--no-cache", "do not read or write the step result cache")
     .option("--refresh <steps>", "comma-separated steps that skip the cache lookup and store a fresh result")
-    .option("-q, --quiet", "suppress progress output on stderr");
+    .option("-q, --quiet", "suppress progress output on stderr")
+    .option("--detach", "run in the background; stderr goes to <run>/run.log (see `runs logs`, `runs watch`, `runs stop`)");
 }
 
 function buildRunner(flags: CommonRunFlags, display?: ProgressDisplay): { runner: CommandRunner; recorder?: RecordingRunner } {
@@ -68,6 +79,35 @@ function commonOptions(flags: CommonRunFlags & { traceFile?: boolean }): Partial
   if (flags.cache === false) o.cache = { enabled: false };
   else if (flags.refresh) o.cache = { refresh: flags.refresh.split(",").map((s) => s.trim()).filter(Boolean) };
   return o;
+}
+
+/**
+ * Re-launch this command as a background process and print where to follow it.
+ * The run id is fixed up front so it can be announced before the child starts.
+ */
+function startDetached(loaded: LoadedFlow, runId: string, args: string[], flags: CommonRunFlags & { traceFile?: boolean }): void {
+  if (flags.traceFile === false) fail("--detach needs a trace file; drop --no-trace-file");
+  if (flags.trace) fail("--detach writes the output to <run>/stdout.json; drop --trace and read the trace file instead");
+  const runDir = path.dirname(traceFile(loaded.dir, runId, flags.traceDir));
+  const launched = launchDetached({ runDir, runId, args });
+  if (!flags.quiet) {
+    const rel = path.relative(process.cwd(), loaded.dir);
+    const flow = !rel ? "." : rel.startsWith("..") ? loaded.dir : rel;
+    log(`Run ${runId} started in background (pid ${launched.pid})`);
+    log(`  log:    ${launched.log}`);
+    log(`  follow: dogyard runs logs ${flow} ${runId} -f`);
+    log(`  watch:  dogyard runs watch ${flow} ${runId}`);
+    log(`  stop:   dogyard runs stop ${flow} ${runId}`);
+  }
+  printJson(launched);
+}
+
+/** First line a detached child writes to its log, so appended resumes stay readable. */
+function detachedHeader(kind: "run" | "resume", runId: string): void {
+  if (!process.env[DETACHED_ENV]) return;
+  log(`=== ${new Date().toISOString()} ${kind} ${runId} pid=${process.pid} ===`);
+  // Not meant for the flow's own commands (or a nested dogyard run).
+  delete process.env[DETACHED_ENV];
 }
 
 /** Wire SIGINT/SIGTERM to an AbortController so the trace records `interrupted`. */
@@ -125,17 +165,29 @@ export function registerRun(program: Command): void {
       .option("-i, --input <json>", "trigger JSON object")
       .option("-f, --input-file <path>", "read trigger JSON from a file (- for stdin)")
       .option("--resume <run_id>", "resume an earlier run instead of starting a new one")
-      .option("--force", "with --resume: proceed even if the flow definition changed"),
-  ).action(async (flowPath: string, flags: CommonRunFlags & { query?: string; input?: string; inputFile?: string; resume?: string; force?: boolean; traceFile?: boolean }) => {
-    if (flags.resume) return resumeAction(flowPath, flags.resume, flags);
+      .option("--force", "with --resume: proceed even if the flow definition changed")
+      .addOption(new Option("--run-id <id>", "use this id for the new run").hideHelp()),
+  ).action(async (flowPath: string, flags: CommonRunFlags & { query?: string; input?: string; inputFile?: string; resume?: string; force?: boolean; traceFile?: boolean; runId?: string }, cmd: Command) => {
+    if (flags.resume) return resumeAction(flowPath, flags.resume, flags, cmd);
     const loaded = loadValidFlow(flowPath, { project: flags.project !== false });
     const trigger = resolveTrigger(flags);
+    if (flags.detach) {
+      // The child cannot read our stdin (--input-file -), so hand it the resolved trigger as a file.
+      const runId = newRunId();
+      const runDir = path.dirname(traceFile(loaded.dir, runId, flags.traceDir));
+      mkdirSync(runDir, { recursive: true });
+      const triggerFile = path.join(runDir, "trigger.json");
+      writeFileSync(triggerFile, JSON.stringify(trigger));
+      return startDetached(loaded, runId, ["run", path.resolve(flowPath), ...optionArgs(cmd, PARENT_ONLY), "--input-file", triggerFile, "--run-id", runId], flags);
+    }
+    if (flags.runId) detachedHeader("run", flags.runId);
     const progress = startProgress(flags, loaded);
     const { runner, recorder } = buildRunner(flags, progress?.display);
     const sig = installSignalHandlers(progress?.display);
     let result: RunResult;
     try {
       const opts: RunOptions = { loaded, trigger, runner, signal: sig.signal, ...commonOptions(flags) };
+      if (flags.runId) opts.runId = flags.runId;
       if (progress) opts.onProgress = progress.onProgress;
       result = await runFlow(opts);
     } finally {
@@ -150,10 +202,10 @@ export function registerRun(program: Command): void {
       .command("resume <flow> <run_id>")
       .description("Resume an interrupted or failed run from its trace; completed steps are not re-run")
       .option("--force", "proceed even if the flow definition changed since the run started"),
-  ).action(async (flowPath: string, runId: string, flags: CommonRunFlags & { force?: boolean; traceFile?: boolean }) => resumeAction(flowPath, runId, flags));
+  ).action(async (flowPath: string, runId: string, flags: CommonRunFlags & { force?: boolean; traceFile?: boolean }, cmd: Command) => resumeAction(flowPath, runId, flags, cmd));
 }
 
-async function resumeAction(flowPath: string, runId: string, flags: CommonRunFlags & { force?: boolean; traceFile?: boolean }): Promise<void> {
+async function resumeAction(flowPath: string, runId: string, flags: CommonRunFlags & { force?: boolean; traceFile?: boolean }, cmd: Command): Promise<void> {
   const loaded = loadValidFlow(flowPath, { project: flags.project !== false });
   const file = traceFile(loaded.dir, runId, flags.traceDir);
   let trace: RunTrace;
@@ -168,6 +220,8 @@ async function resumeAction(flowPath: string, runId: string, flags: CommonRunFla
     printJson(resume.output ?? null);
     return;
   }
+  if (flags.detach) return startDetached(loaded, runId, ["resume", path.resolve(flowPath), runId, ...optionArgs(cmd, PARENT_ONLY)], flags);
+  detachedHeader("resume", runId);
   if (!flags.quiet) log(`Resuming run ${runId} (resume #${resume.resume_count})`);
   const progress = startProgress(flags, loaded, runId);
   const { runner, recorder } = buildRunner(flags, progress?.display);
