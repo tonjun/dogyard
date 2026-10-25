@@ -490,6 +490,45 @@ describe("--detach", () => {
     expect(log).toMatch(/\[succeeded {2}\] done/);
   });
 
+  it("can be drain-paused and continued (runs pause / continue)", async () => {
+    const dir = path.join(work, "examples/flows/flaky-pause");
+    cpSync(flaky, dir, { recursive: true });
+    rmSync(path.join(dir, ".runs"), { recursive: true, force: true });
+    const marker = path.join(work, "pause-marker");
+    writeFileSync(marker, "");
+
+    const r = await cli(["run", dir, "--input", JSON.stringify({ marker, delay_ms: 600 }), "--detach", "-q"]);
+    expect(r.code, r.stderr).toBe(0);
+    const { run_id: runId, trace } = json(r.stdout) as { run_id: string; trace: string };
+    const read = () => json(readFileSync(trace, "utf8")) as { status: string; paused_at?: string; steps: Array<{ name: string; items?: Array<{ status: string }> }> };
+    await until(() => existsSync(trace) && read().steps.some((s) => s.name === "slow_map" && s.items?.length));
+
+    const paused = await cli(["runs", "pause", dir, runId]);
+    expect(paused.code, paused.stderr).toBe(0);
+    expect(paused.stderr).toMatch(/Requested pause/);
+    await until(() => read().paused_at !== undefined);
+    // The item in flight finishes; then nothing new starts, and the process stays alive.
+    const settled = () => read().steps.find((s) => s.name === "slow_map")!.items!.filter((i) => i.status === "succeeded").length;
+    await new Promise((res) => setTimeout(res, 1500));
+    const done = settled();
+    await new Promise((res) => setTimeout(res, 1000));
+    expect(settled()).toBe(done);
+    expect(done).toBeLessThan(4);
+    expect(read().status).toBe("running");
+    expect((await cli(["runs", "list", dir])).stdout).toMatch(new RegExp(`${runId}\\s+paused`));
+
+    const cont = await cli(["runs", "continue", dir, runId]);
+    expect(cont.code, cont.stderr).toBe(0);
+    expect((await cli(["runs", "continue", dir, runId])).stderr).toMatch(/is not paused/);
+    const watched = await cli(["runs", "watch", dir, runId, "--interval", "50ms"]);
+    expect(watched.code, watched.stderr).toBe(0);
+    expect(read().paused_at).toBeUndefined();
+    const log = (await cli(["runs", "logs", dir, runId])).stdout;
+    expect(log).toMatch(/Paused: running steps will finish/);
+    expect(log).toMatch(/Continuing/);
+    expect((await cli(["runs", "pause", dir, runId])).stderr).toMatch(/is not running \(succeeded\)/);
+  });
+
   it("reports a run whose process died without finishing its trace", async () => {
     const r = await cli(["run", hello, "--query", "hi", "-q", "--trace"]);
     const runId = json(r.stdout).run_id as string;

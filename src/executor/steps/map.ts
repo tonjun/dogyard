@@ -6,6 +6,7 @@ import { now, type ItemTrace } from "../../trace.js";
 import { hitTrace, probeCache, storeResult, type CacheContext } from "../cache.js";
 import type { CommandRunner } from "../command-runner.js";
 import { buildContext, type ExecutionContext } from "../context.js";
+import type { PauseGate } from "../pause.js";
 import { withRetry } from "../retry.js";
 import { executeCommandStep } from "./command.js";
 import { executeTransformStep } from "./transform.js";
@@ -25,6 +26,8 @@ export interface MapStepOptions {
   onItemChange?: (items: ItemTrace[]) => void;
   /** Result cache, used per item when the command sub-step declares `cache`. */
   cache?: CacheContext;
+  /** Drain-pause: items not yet started wait here while paused. */
+  pause?: PauseGate;
 }
 
 export interface MapOutcome {
@@ -52,6 +55,7 @@ export async function executeMapStep(step: MapStep, ctx: ExecutionContext, opts:
     items.map((item, index) =>
       limit(async () => {
         if (item.status === "succeeded" || item.status === "caught") return;
+        if (opts.pause?.paused) await opts.pause.wait(opts.signal);
         if (firstError || opts.signal?.aborted) return; // fail fast: don't start new items
         item.status = "running";
         item.started_at = now();

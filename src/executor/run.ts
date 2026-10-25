@@ -9,6 +9,7 @@ import { newRunId, now, traceFile, writeTrace, type RunTrace, type StepTrace } f
 import { cacheRoot, hitTrace, probeCache, storeResult, type CacheContext } from "./cache.js";
 import { MockRunner, RealRunner, RecordingRunner, type CommandRunner } from "./command-runner.js";
 import { buildContext } from "./context.js";
+import type { PauseGate } from "./pause.js";
 import { withRetry } from "./retry.js";
 import { executeChoiceStep } from "./steps/choice.js";
 import { executeCommandStep, resolveStepCwd } from "./steps/command.js";
@@ -38,6 +39,11 @@ export interface RunOptions {
   cache?: { enabled?: boolean; refresh?: string[] };
   /** Use this run id for a fresh run instead of generating one (e.g. a detached run whose id was announced up front). */
   runId?: string;
+  /**
+   * Drain-pause: while paused no new steps or map items start (running ones
+   * finish) and the trace carries `paused_at`. `run_timeout` keeps counting.
+   */
+  pause?: PauseGate;
 }
 
 export interface RunResult {
@@ -48,7 +54,7 @@ export interface RunResult {
   traceFile?: string;
 }
 
-const DEFAULT_MAX_CONCURRENCY = 8;
+export const DEFAULT_MAX_CONCURRENCY = 8;
 export const DEFAULT_RETRY: RetryPolicy = { max_attempts: 1, backoff: "0s", on: ["command_failure"] };
 
 class RunEnded extends Error {
@@ -82,6 +88,7 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
     delete trace.error;
     delete trace.output;
     delete trace.terminal_step;
+    delete trace.paused_at;
   }
   const file = traceFile(loaded.dir, trace.run_id, opts.traceDir);
   const checkpoint = () => {
@@ -131,6 +138,18 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
     finish(status, err);
     abortWith(err ?? new FlowError("interrupted", "Run ended"));
   };
+
+  const gate = opts.pause;
+  const markPaused = (paused: boolean) => {
+    if (paused) trace.paused_at = now();
+    else delete trace.paused_at;
+  };
+  if (gate?.paused) markPaused(true);
+  const offPause = gate?.onChange((paused) => {
+    if (ended) return;
+    markPaused(paused);
+    checkpoint();
+  });
 
   try {
     checkpoint();
@@ -190,17 +209,28 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
     // Main scheduling loop.
     while (!ended) {
       propagateSkips();
-      const ready = graph.order.filter((n) => isReady(states.get(n)!));
+      const ready = gate?.paused ? [] : graph.order.filter((n) => isReady(states.get(n)!));
       for (const name of ready) {
         if (running.size >= maxConcurrency) break;
         const p = executeStep(name).finally(() => running.delete(name));
         running.set(name, p);
       }
       if (running.size === 0) {
+        if (gate?.paused) {
+          // Idle while paused: nothing in flight will notice an abort, so end the run here.
+          await gate.wait(signal);
+          if (signal.aborted) {
+            const reason = toFlowError(signal.reason);
+            finish(reason.type === "timeout" ? "failed" : "interrupted", reason);
+            break;
+          }
+          continue;
+        }
         checkpoint();
         break;
       }
-      await Promise.race(running.values());
+      // While paused, also wake on continue so ready steps start without waiting for a running one.
+      await Promise.race([...running.values(), ...(gate?.paused ? [gate.wait(signal)] : [])]);
       checkpoint();
     }
     // Drain in-flight work (after a terminal step or failure the rest were aborted).
@@ -217,6 +247,8 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
   } catch (err) {
     if (!(err instanceof RunEnded)) finish("failed", toFlowError(err));
   } finally {
+    offPause?.();
+    delete trace.paused_at;
     if (runTimer) clearTimeout(runTimer);
     opts.signal?.removeEventListener("abort", onExternalAbort);
   }
@@ -358,6 +390,7 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
           cwd: step.step.type === "command" ? resolveStepCwd(loaded.dir, st.name, step.step) : loaded.dir,
           itemRetry,
           maxConcurrency: step.max_concurrency ?? maxConcurrency,
+          ...(gate ? { pause: gate } : {}),
           onItemChange: (items) => {
             st.items = items;
             checkpoint();

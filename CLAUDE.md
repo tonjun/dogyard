@@ -100,6 +100,18 @@ CLI detached with a pre-assigned run id (`RunOptions.runId`, hidden `--run-id`)
 and args rebuilt from commander's parsed options (`optionArgs`). Stderr goes to
 `.runs/<run_id>/run.log`, stdout to `stdout.json`, plus `pid`/`trigger.json`.
 `runs logs`/`runs stop` use those; `runs watch` checks the pid is still alive.
+`runs pause`/`continue` toggle a `.runs/<run_id>/pause` file that every run
+with a trace polls (`installSignalHandlers` in `cli/commands/run.ts`) and feeds
+to `RunOptions.pause`, a `PauseGate` (`executor/pause.ts`). It is a drain
+pause: no new steps/map items start, the trace gets `paused_at`. The
+run-control helpers (`stopRun`/`pauseRun`/`continueRun`/`startBackgroundRun`)
+live in `cli/background.ts`.
+
+**Run console:** `dogyard ui` (`cli/commands/ui.ts` → `ui/server.ts`) serves
+`ui/static/` (vanilla JS/CSS, no build; `scripts/copy-ui-assets.mjs` copies it
+to `dist/`) plus a token-guarded JSON/SSE API over the same files. It starts
+runs as `--detach` children and controls them through the helpers above;
+`ui/flow-info.ts` (`describeFlow`) shapes the flow definition for the page.
 
 **Schemas:** `src/schema/*.ts` (Zod) define `flow.yaml`, `workflows.yaml`
 (project defaults), `*.test.yaml`, and `eval.yaml`/dataset shapes; these are
@@ -125,6 +137,7 @@ flows/<name>/
   steps/<step>/evals/reports/
   .runs/<run_id>/trace.json
   .runs/<run_id>/run.log, pid, stdout.json, trigger.json   (--detach runs)
+  .runs/<run_id>/stop, pause                                (control requests)
 ```
 
 Four runnable examples live under `examples/flows/` (`hello`, `research`,

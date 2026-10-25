@@ -3,7 +3,23 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { isAlive, launchDetached, optionArgs, readRunPid, runLogFile, runPidFile, runProcessAlive, runStopFile } from "../../src/cli/background.js";
+import { spawn } from "node:child_process";
+import {
+  RunControlError,
+  continueRun,
+  isAlive,
+  launchDetached,
+  optionArgs,
+  pauseRun,
+  readRunPid,
+  runLogFile,
+  runPauseFile,
+  runPidFile,
+  runProcessAlive,
+  runStopFile,
+  startBackgroundRun,
+  stopRun,
+} from "../../src/cli/background.js";
 
 describe("optionArgs", () => {
   it("rebuilds only the options given on the command line, minus excluded ones", () => {
@@ -95,5 +111,57 @@ describe("detached run files", () => {
     while (isAlive(launched.pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
     expect(readFileSync(path.join(runDir, "stdout.json"), "utf8")).toBe('["run","a b"]');
     expect(readFileSync(launched.log, "utf8")).toBe("detached=1");
+  });
+});
+
+describe("run control", () => {
+  const setup = (status: string, pid?: number) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ctl-"));
+    const runDir = path.join(dir, ".runs", "r");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(path.join(runDir, "trace.json"), JSON.stringify({ run_id: "r", status, started_at: "2026-01-01T00:00:00Z", steps: [] }));
+    if (pid !== undefined) writeFileSync(path.join(runDir, "pid"), `${pid}\n`);
+    return dir;
+  };
+  const gone = 2 ** 22 + 12345;
+
+  it("pauses and continues a running run through the pause file", () => {
+    const dir = setup("running", process.pid);
+    expect(() => continueRun(dir, "r")).toThrow(/is not paused/);
+    expect(pauseRun(dir, "r")).toMatch(/Requested pause/);
+    expect(existsSync(runPauseFile(dir, "r"))).toBe(true);
+    expect(continueRun(dir, "r")).toMatch(/continues/);
+    expect(existsSync(runPauseFile(dir, "r"))).toBe(false);
+  });
+
+  it("refuses controls that don't apply", () => {
+    expect(() => pauseRun(setup("succeeded"), "r")).toThrow(/not running \(succeeded\)/);
+    expect(() => pauseRun(setup("running", gone), "r")).toThrow(/process is not running/);
+    expect(() => pauseRun(mkdtempSync(path.join(tmpdir(), "ctl-")), "r")).toThrow(RunControlError);
+    expect(() => stopRun(setup("running"), "r")).toThrow(/no pid file/);
+    expect(() => stopRun(setup("failed", process.pid), "r")).toThrow(/not running \(failed\)/);
+    expect(() => stopRun(setup("running", gone), "r")).toThrow(/pid \d+\) is not running/);
+  });
+
+  it("stops a live run with a stop request and SIGTERM", async () => {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+    const exited = new Promise((r) => child.on("exit", (_code, sig) => r(sig)));
+    const dir = setup("running", child.pid);
+    expect(stopRun(dir, "r")).toMatch(process.platform === "win32" ? /Requested stop/ : /Sent SIGTERM/);
+    expect(existsSync(runStopFile(dir, "r"))).toBe(true);
+    if (process.platform !== "win32") expect(await exited).toBe("SIGTERM");
+    else child.kill();
+  });
+
+  it("starts a background run with its trigger in trigger.json and a custom CLI command", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "bgrun-"));
+    const script = path.join(dir, "child.cjs");
+    writeFileSync(script, "process.stdout.write(JSON.stringify(process.argv.slice(2)))");
+    const launched = startBackgroundRun({ flowDir: dir, runId: "r9", trigger: { q: 1 }, extraArgs: ["--quiet"], command: [process.execPath, script] });
+    const runDir = path.join(dir, ".runs", "r9");
+    expect(JSON.parse(readFileSync(path.join(runDir, "trigger.json"), "utf8"))).toEqual({ q: 1 });
+    const deadline = Date.now() + 10_000;
+    while (isAlive(launched.pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+    expect(JSON.parse(readFileSync(path.join(runDir, "stdout.json"), "utf8"))).toEqual(["run", dir, "--quiet", "--input-file", path.join(runDir, "trigger.json"), "--run-id", "r9"]);
   });
 });

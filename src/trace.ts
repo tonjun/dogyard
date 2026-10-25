@@ -81,6 +81,8 @@ export interface RunTrace {
   error?: FlowErrorJSON;
   /** Name of the terminal step that ended the run, if any. */
   terminal_step?: string;
+  /** Set while the run is drain-paused (status stays `running`). */
+  paused_at?: string;
   steps: StepTrace[];
 }
 

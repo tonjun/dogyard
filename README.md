@@ -370,6 +370,7 @@ flows/<name>/
     evals/reports/       written by `eval --step <step>`
   .runs/<run_id>/trace.json
   .runs/<run_id>/run.log      with --detach: stderr log (also pid, trigger.json, stdout.json)
+  .runs/<run_id>/pause        present while `runs pause` holds the run (also `stop` requests)
   .dogyard/cache/        step result cache (when there is no workflows.yaml)
 workflows.yaml           optional project-level defaults (discovered by walking up)
 .dogyard/cache/<flow>/   step result cache, next to workflows.yaml
@@ -391,6 +392,8 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 | `runs watch <flow> [run_id] [--json] [--interval 500ms]` | Follow a run from another terminal (the latest by default): live status lines, the last error with its stderr tail. Exits with the run's exit code when it ends. `--json` streams NDJSON `progress` events and a final `end` event. |
 | `runs logs <flow> [run_id] [-f] [--interval 500ms]` | Print a `--detach` run's stderr log (`run.log`); `-f` follows it until the run ends. |
 | `runs stop <flow> [run_id]` | Stop a `--detach` run: writes a `stop` request file the run polls for (plus SIGTERM on POSIX); its trace records `interrupted` and it can be resumed. |
+| `runs pause <flow> [run_id]` / `runs continue <flow> [run_id]` | Drain-pause a running run (running steps and map items finish, no new ones start; the trace gets `paused_at`) and let it go on again. |
+| `ui <flow> [--port 0] [--host 127.0.0.1] [--open] [--trace-dir] [--no-project]` | Serve a local web console for the flow: the live DAG, step and flow details, streamed logs, and start/pause/resume/stop controls. See [Run console](#run-console-dogyard-ui). |
 | `cache ls <flow> [--step] [--json]` / `cache clear <flow> [--step] [--expired]` | Inspect or delete cached step results. |
 | `test <flow> [-k filter] [--step <name>] [--no-steps]` | Run `tests/*.test.yaml` with mocked commands plus every `steps/<step>/tests/*.test.yaml`. `--step` runs one step's tests only; `--no-steps` skips step tests. |
 | `eval <flow> [--step <name>] [--dataset] [--mocks] [--concurrency] [--limit] [--cache] [--report] [--json]` | Score a dataset and write a report. With `--step`, evaluate that step alone using `steps/<name>/evals/`. |
@@ -571,11 +574,57 @@ request file the run polls for). `-q` only quiets the launcher; the log always h
 full progress. `runs logs -f` and `runs watch` exit with an error if the
 process dies without finishing its trace.
 
+`runs pause <flow> [run_id]` drain-pauses a running run, whether it was started
+with `--detach` or in the foreground. Steps and map items already running
+finish, nothing new starts, and the trace records `paused_at` (`runs` lists
+the run as `paused`). `runs continue` lets it go on. The run polls a
+`.runs/<run_id>/pause` file, so pausing works the same on every platform.
+`run_timeout` keeps counting while paused, and `runs stop` still works.
+
 `resume <flow> <run_id>` reloads the flow, refuses if its definition changed
 (override with `--force`), keeps every `succeeded`/`caught` step and map item,
 and re-executes only what was pending, running, failed or interrupted. The run
 keeps its id and `resume_count` increments. Re-executed steps that declare
 `cache:` consult the step cache like a fresh run (see Caching).
+
+### Run console (`dogyard ui`)
+
+```bash
+dogyard ui flows/research --open
+# DogYard UI: http://127.0.0.1:53412/?token=…
+```
+
+`ui` serves a single-page console on localhost. It has no dependencies and
+nothing to build, and the page reads the same `flow.yaml`, `trace.json` and
+`run.log` files the CLI uses:
+
+- **Runs** (left): recent runs with status, duration and items done.
+- **DAG** (center): steps colored by state, running steps pulsing, map
+  progress bars, and taken branches highlighted. You can pan, zoom (wheel or
+  pinch) and fit (`f`). Hovering a node shows a tooltip and highlights its
+  upstream and downstream steps; hovering a choice edge shows its `when`.
+  Clicking a node opens actions: details (description, the step's YAML, the
+  resolved cwd, retry/catch/cache), logs, input/output, attempts and errors,
+  map items, focus lineage, and copy (step name, `steps.<name>.output`,
+  test/eval commands). Arrow keys move between nodes and Enter opens the
+  actions. Clicking the background or the flow title shows the flow
+  description, trigger schema, effective config (tagged flow /
+  `workflows.yaml` / default), tests and evals, `flow.yaml`, and graph export.
+- **Inspector** (right) and **logs** (bottom): the selected step's state, and
+  `run.log` streamed live, filterable by step or map item.
+- **Panes**: the runs list, inspector and logs can each be hidden from the
+  toolbar toggles, their `×`, or `[` / `]` / `\`. `g` (⛶) hides all three to
+  focus on the graph and brings them back. An action that needs a hidden pane
+  (Details, Logs, …) reopens it, and the layout is remembered per browser.
+- **Controls**: ▶ Start (trigger JSON dialog, checked against `trigger_schema`),
+  ⏸ Pause, ⏵ Resume (continues a paused run, or `resume`s an interrupted or
+  failed one), ■ Stop.
+
+Runs started from the console are ordinary `--detach` runs. They keep going
+after you quit `ui`, and `runs logs/watch/stop` work on them. Foreground runs
+started in a terminal show up too and can be paused, but only detached runs
+can be stopped from the page. The server binds to loopback, checks the `Host`
+header, and every API call needs the token printed in the URL.
 
 ## Using an LLM (or any tool)
 

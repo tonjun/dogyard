@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
 import { formatShortDuration, parseDuration, sleep } from "../../duration.js";
@@ -6,7 +6,7 @@ import { buildGraph, exportGraph, type GraphFormat } from "../../graph.js";
 import { FLOW_FILENAMES, LoadError, loadFlow } from "../../loader.js";
 import { computeProgress, historicalItemMedians, runSummary, type RunProgress } from "../../progress.js";
 import { cacheStats, latestRun, listRuns, readTrace, recentRuns, runsDir, traceFile, type RunTrace } from "../../trace.js";
-import { isAlive, readRunPid, runLogFile, runProcessAlive, runStopFile } from "../background.js";
+import { RunControlError, continueRun, pauseRun, runLogFile, runProcessAlive, stopRun } from "../background.js";
 import { ProgressDisplay, stepTransitionLogger } from "../progress-display.js";
 import { formatDiagnostics, validateFlow } from "../../validate.js";
 import { fail, loadValidFlow, log, printJson } from "../util.js";
@@ -119,7 +119,7 @@ export function registerInspect(program: Command): void {
         const p = runSummary(t);
         const cache = c.cached || c.executed ? `  cached=${c.cached} executed=${c.executed}` : "";
         const items = p.items_total ? `  items=${p.items_done}/${p.items_total}` : "";
-        process.stdout.write(`${t.run_id}  ${t.status.padEnd(11)}  ${t.started_at}  ${formatShortDuration(p.duration_ms).padStart(6)}  resumes=${t.resume_count}${items}${cache}${t.error ? `  ${t.error.type}: ${t.error.message}` : ""}\n`);
+        process.stdout.write(`${t.run_id}  ${(t.paused_at ? "paused" : t.status).padEnd(11)}  ${t.started_at}  ${formatShortDuration(p.duration_ms).padStart(6)}  resumes=${t.resume_count}${items}${cache}${t.error ? `  ${t.error.type}: ${t.error.message}` : ""}\n`);
       }
     });
   runs
@@ -173,25 +173,24 @@ export function registerInspect(program: Command): void {
         alive: () => runProcessAlive(loaded.dir, id, flags.traceDir),
       });
     });
-  runs
-    .command("stop <flow> [run_id]")
-    .description("Interrupt a --detach run (stop request, plus SIGTERM on POSIX); its trace records `interrupted` and it can be resumed")
-    .option("--trace-dir <dir>", "directory holding run traces")
-    .action((flowPath: string, runId: string | undefined, flags: { traceDir?: string }) => {
-      const loaded = loadValidFlow(flowPath);
-      const id = resolveRunId(loaded.dir, runId, flags.traceDir);
-      const pid = readRunPid(loaded.dir, id, flags.traceDir);
-      if (pid === undefined) fail(`Run ${id} has no pid file (only runs started with --detach can be stopped)`);
-      const file = traceFile(loaded.dir, id, flags.traceDir);
-      const status = existsSync(file) ? readTrace(file).status : undefined;
-      if (status && status !== "running") fail(`Run ${id} is not running (${status})`);
-      if (!isAlive(pid)) fail(`Run ${id}'s process (pid ${pid}) is not running`);
-      writeFileSync(runStopFile(loaded.dir, id, flags.traceDir), `${new Date().toISOString()}\n`);
-      // On Windows process.kill() terminates outright, skipping the checkpoint; the run polls for the stop file instead.
-      if (process.platform === "win32") return log(`Requested stop of run ${id} (pid ${pid})`);
-      process.kill(pid, "SIGTERM");
-      log(`Sent SIGTERM to run ${id} (pid ${pid})`);
-    });
+  const control = (name: string, description: string, act: typeof stopRun) =>
+    runs
+      .command(`${name} <flow> [run_id]`)
+      .description(description)
+      .option("--trace-dir <dir>", "directory holding run traces")
+      .action((flowPath: string, runId: string | undefined, flags: { traceDir?: string }) => {
+        const loaded = loadValidFlow(flowPath);
+        const id = resolveRunId(loaded.dir, runId, flags.traceDir);
+        try {
+          log(act(loaded.dir, id, flags.traceDir));
+        } catch (err) {
+          if (err instanceof RunControlError) fail(err.message);
+          throw err;
+        }
+      });
+  control("stop", "Interrupt a --detach run (stop request, plus SIGTERM on POSIX); its trace records `interrupted` and it can be resumed", stopRun);
+  control("pause", "Drain-pause a running run: running steps and map items finish, no new ones start", pauseRun);
+  control("continue", "Let a paused run start new steps again", continueRun);
 }
 
 /** `undefined`/`latest` → the most recent run id. */
@@ -262,6 +261,7 @@ async function watchRun(file: string, opts: { json: boolean; interval: number; h
     const key = err.join("\n");
     if (tty || key !== lastError) lines.push(...err);
     lastError = key;
+    if (trace?.paused_at) lines.push(`⏸ paused since ${trace.paused_at} (\`runs continue\` to go on)`);
     if (tty && p.status === "running") lines.push(`updated ${formatShortDuration(Date.now() - mtime)} ago`);
     return lines;
   };
