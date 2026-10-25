@@ -506,16 +506,23 @@ button { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
 
 /* ---- toolbar ---- */
+/* Always one row: in narrow windows the buttons shrink to icons rather than wrapping
+   onto extra rows that push the graph down. */
 #toolbar {
-  display: flex; align-items: center; gap: 16px;
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 12px; min-width: 0;
   padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
 }
+#toolbar > * { flex: none; }
+#toolbar > #run-meta { flex: 1; }
+.brand { min-width: 0; }
+#flow-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28vw; }
 .brand { display: flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 14px; }
 .brand:hover { background: var(--panel-2); }
 .logo { font-weight: 700; letter-spacing: 0.02em; }
 .sep { color: var(--muted); }
 #flow-name { font-weight: 600; }
-#run-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; flex: 1; min-width: 0; }
+#run-meta { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow: hidden; }
+#run-eta { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #run-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .controls, .view-toggles { display: flex; gap: 6px; }
 .view-toggles { padding-right: 10px; border-right: 1px solid var(--border); }
@@ -634,6 +641,15 @@ button { font: inherit; color: inherit; }
 .node .bar { fill: var(--status); }
 .node.selected rect.box { stroke-width: 3; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
 .node:focus { outline: none; }
+.node .glyph { font-size: 12px; fill: var(--status); }
+body.compact .node .name { font-size: 12px; }
+body.compact .node .meta { font-size: 10.5px; }
+body.compact .node.s-none rect.box, body.compact .node.s-pending rect.box { stroke-width: 1.2; }
+body.compact .node.s-running rect.box { fill: color-mix(in srgb, var(--s-running) 14%, var(--node-bg)); }
+body.compact #legend { display: none; }
+body.compact .edge path { stroke-width: 1.2; }
+body.compact .edge.taken path:not(.hit) { stroke-width: 1.6; }
+body.compact .logs-head { padding: 3px 10px; }
 .node.s-running rect.box { animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { stroke-width: 3.2; stroke-opacity: 0.55; } }
 .dim { opacity: 0.22; transition: opacity 0.12s; }
@@ -757,24 +773,36 @@ dialog textarea, dialog input {
 .dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .dialog-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-#toasts { position: fixed; right: 16px; top: 56px; display: flex; flex-direction: column; gap: 8px; z-index: 20; }
+#toasts { position: fixed; right: 16px; top: 48px; display: flex; flex-direction: column; gap: 8px; z-index: 20; }
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 12px; max-width: 380px; white-space: pre-wrap; }
 .toast.err { border-left-color: var(--danger); }
 
+/* Dense header: icon-only buttons and a swatch-only theme picker, in compact mode or when the window is narrow. */
+body.compact #toolbar { padding: 4px 8px; gap: 8px; }
+body.compact .lbl, body.compact #theme-name, body.compact #theme-btn .chev { display: none; }
+body.compact #toolbar .btn { padding: 3px 8px; }
+@media (max-width: 1100px) {
+  #toolbar { padding: 4px 8px; gap: 8px; }
+  .lbl, #theme-name, #theme-btn .chev { display: none; }
+  #toolbar .btn { padding: 3px 8px; }
+}
 @media (max-width: 1000px) {
   :root { --runs-w: 170px; --insp-w: 300px; }
   body.hide-runs { --runs-w: 0px; }
   body.hide-inspector { --insp-w: 0px; }
 }
+@media (max-width: 900px) {
+  body.compact .logo, body.compact .sep, body.compact #run-id { display: none; }
+}
+/* Narrow (e.g. side by side with a browser): the graph and logs keep the whole window;
+   the runs list and inspector open as overlays on the graph's edges instead of stacking. */
 @media (max-width: 760px) {
-  body { overflow: auto; grid-template-rows: auto auto var(--logs-h); }
-  body.hide-logs { grid-template-rows: auto auto 0; }
-  #layout { grid-template-columns: 1fr; grid-template-rows: auto 60vh auto; }
-  #runs, #graph-pane, #inspector { grid-column: 1; }
-  body.hide-runs #layout { grid-template-rows: 60vh auto; }
-  body.hide-runs.hide-inspector #layout { grid-template-rows: 60vh; }
+  .logo, .sep, #run-id, .pill-text { display: none; }
+  #flow-name { max-width: 24vw; }
   .view-toggles { border-right: 0; padding-right: 0; }
-  #runs { height: 160px; border-right: 0; border-bottom: 1px solid var(--border); }
-  #inspector { border-left: 0; border-top: 1px solid var(--border); }
-  #toolbar { flex-wrap: wrap; }
+  #layout { grid-template-columns: minmax(0, 1fr); position: relative; }
+  #runs, #graph-pane, #inspector { grid-column: 1; grid-row: 1; }
+  #runs, #inspector { position: absolute; top: 0; bottom: 0; z-index: 8; box-shadow: var(--shadow); }
+  #runs { left: 0; width: min(85vw, 280px); }
+  #inspector { right: 0; width: min(92vw, 360px); }
 }

@@ -3,10 +3,9 @@
 
 const TOKEN = new URLSearchParams(location.search).get("token") ?? "";
 const SVG_NS = "http://www.w3.org/2000/svg";
-const NODE_W = 184;
-const NODE_H = 58;
-const GAP_X = 44;
-const GAP_Y = 74;
+/** Node size and spacing; compact mode draws one-line nodes packed tighter. */
+const DIMS = { normal: { w: 184, h: 58, gx: 44, gy: 74 }, compact: { w: 156, h: 28, gx: 14, gy: 30 } };
+const dims = () => (state.compact ? DIMS.compact : DIMS.normal);
 const MAX_LOG_CHARS = 2_000_000;
 const STATUS_GLYPH = { running: "●", succeeded: "✓", failed: "✗", interrupted: "◌", paused: "⏸", caught: "◐", skipped: "–", pending: "○" };
 const TYPE_ICON = { command: "›_", transform: "ƒ", pass: "→", choice: "◇", map: "⧉" };
@@ -35,12 +34,17 @@ const state = {
   panes: { runs: true, inspector: true, logs: true },
   /** Panes to bring back when leaving "focus graph". */
   panesBeforeFocus: null,
+  /** One-line nodes, packed tighter; remembered per browser. */
+  compact: false,
 };
 
 const PANES = ["runs", "inspector", "logs"];
 const PANES_KEY = "dogyard.panes";
 const TEXT_MAX_KEY = "dogyard.textMax";
 const THEME_KEY = "dogyard.theme";
+const COMPACT_KEY = "dogyard.compact";
+/** Below this width the runs list and inspector overlay the graph (matches app.css). */
+const NARROW = "(max-width: 760px)";
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -181,8 +185,9 @@ function computeLayout(flow) {
     const offset = (row.length - 1) / 2;
     row.forEach((n, i) => xIndex.set(n, i - offset));
   });
+  const { w, h, gx, gy } = dims();
   const pos = new Map();
-  for (const [n, xi] of xIndex) pos.set(n, { x: xi * (NODE_W + GAP_X), y: layer.get(n) * (NODE_H + GAP_Y) });
+  for (const [n, xi] of xIndex) pos.set(n, { x: xi * (w + gx), y: layer.get(n) * (h + gy) });
   return { pos, rows, layer, parents, children };
 }
 
@@ -194,11 +199,12 @@ function svg(tag, attrs = {}, children = []) {
 }
 
 function edgePath(a, b) {
+  const { h } = dims();
   const x1 = a.x;
-  const y1 = a.y + NODE_H / 2;
+  const y1 = a.y + h / 2;
   const x2 = b.x;
-  const y2 = b.y - NODE_H / 2 - 2;
-  const dy = Math.max(30, (y2 - y1) / 2);
+  const y2 = b.y - h / 2 - 2;
+  const dy = Math.max(state.compact ? 12 : 30, (y2 - y1) / 2);
   return `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
 }
 
@@ -208,6 +214,7 @@ function renderGraph() {
   if (!state.flow) return;
   state.layout = computeLayout(state.flow);
   const { pos } = state.layout;
+  const { w, h } = dims();
   const edges = svg("g", { class: "edges" });
   // Several branches (or a branch plus the default) to the same target share one drawn edge.
   const merged = new Map();
@@ -226,11 +233,12 @@ function renderGraph() {
       svg("path", { d, "marker-end": "url(#arrow)" }),
       svg("path", { d, class: "hit" }),
     ]);
-    if (e.kind === "choice") {
+    // Compact mode has no room for branch labels; the edge tooltip still shows them.
+    if (e.kind === "choice" && !state.compact) {
       const short = (l) => (l === "default" ? "default" : l.replace(/^steps\.[\w-]+\.output\./, "").replace(/\s+/g, " "));
       const text = e.labels.map(short).join(" | ");
       // Near the target end, where sibling edges have already fanned apart.
-      const t = svg("text", { x: a.x + (b.x - a.x) * 0.8, y: b.y - NODE_H / 2 - 14, "text-anchor": "middle" });
+      const t = svg("text", { x: a.x + (b.x - a.x) * 0.8, y: b.y - h / 2 - 14, "text-anchor": "middle" });
       t.textContent = text.length > 26 ? `${text.slice(0, 25)}…` : text;
       g.append(t);
     }
@@ -243,21 +251,9 @@ function renderGraph() {
   const nodes = svg("g", { class: "nodes" });
   for (const s of state.flow.steps) {
     const p = pos.get(s.name);
-    const g = svg("g", { class: "node s-none", "data-name": s.name, transform: `translate(${p.x - NODE_W / 2}, ${p.y - NODE_H / 2})`, tabindex: "-1" });
-    g.append(
-      svg("rect", { class: "box", width: NODE_W, height: NODE_H, rx: 10 }),
-      svg("rect", { class: "stripe", x: 0, y: 8, width: 4, height: NODE_H - 16, rx: 2 }),
-    );
-    const icon = svg("text", { class: "badge", x: 14, y: 22 });
-    icon.textContent = TYPE_ICON[s.type] ?? "•";
-    const name = svg("text", { class: "name", x: 34, y: 22 });
-    name.textContent = s.name.length > 19 ? `${s.name.slice(0, 18)}…` : s.name;
-    const meta = svg("text", { class: "meta", x: 14, y: 42 });
-    meta.textContent = s.type;
-    const flag = svg("text", { class: "badge", x: NODE_W - 12, y: 22, "text-anchor": "end" });
-    flag.textContent = s.terminal === "success" ? "⚑" : s.terminal === "fail" ? "⚑!" : "";
-    g.append(icon, name, meta, flag);
-    if (s.type === "map") g.append(svg("rect", { class: "bar-bg", x: 14, y: NODE_H - 9, width: NODE_W - 28, height: 3, rx: 1.5 }), svg("rect", { class: "bar", x: 14, y: NODE_H - 9, width: 0, height: 3, rx: 1.5 }));
+    const g = svg("g", { class: "node s-none", "data-name": s.name, transform: `translate(${p.x - w / 2}, ${p.y - h / 2})`, tabindex: "-1" });
+    if (state.compact) appendCompactNode(g, s);
+    else appendNode(g, s);
     g.addEventListener("mouseenter", (ev) => {
       showTooltip(ev, nodeTooltip(s.name));
       if (!state.lineagePinned) highlightLineage(s.name);
@@ -282,6 +278,49 @@ function renderGraph() {
   fitGraph();
 }
 
+function appendNode(g, s) {
+  const { w, h } = dims();
+  g.append(
+    svg("rect", { class: "box", width: w, height: h, rx: 10 }),
+    svg("rect", { class: "stripe", x: 0, y: 8, width: 4, height: h - 16, rx: 2 }),
+  );
+  const icon = svg("text", { class: "badge", x: 14, y: 22 });
+  icon.textContent = TYPE_ICON[s.type] ?? "•";
+  const name = svg("text", { class: "name", x: 34, y: 22 });
+  name.textContent = s.name.length > 19 ? `${s.name.slice(0, 18)}…` : s.name;
+  const meta = svg("text", { class: "meta", x: 14, y: 42 });
+  meta.textContent = s.type;
+  const flag = svg("text", { class: "badge", x: w - 12, y: 22, "text-anchor": "end" });
+  flag.textContent = s.terminal === "success" ? "⚑" : s.terminal === "fail" ? "⚑!" : "";
+  g.append(icon, name, meta, flag);
+  if (s.type === "map") g.append(svg("rect", { class: "bar-bg", x: 14, y: h - 9, width: w - 28, height: 3, rx: 1.5 }), svg("rect", { class: "bar", x: 14, y: h - 9, width: 0, height: 3, rx: 1.5 }));
+}
+
+/** One row: status glyph, name, and a short live meta (duration or items) on the right. */
+function appendCompactNode(g, s) {
+  const { w, h } = dims();
+  const y = h / 2 + 4;
+  g.append(svg("rect", { class: "box", width: w, height: h, rx: 7 }));
+  const glyph = svg("text", { class: "glyph", x: 9, y });
+  const name = svg("text", { class: "name", x: 23, y });
+  name.textContent = s.name;
+  const meta = svg("text", { class: "meta", x: w - 8, y, "text-anchor": "end" });
+  g.append(glyph, name, meta);
+  if (s.type === "map") g.append(svg("rect", { class: "bar-bg", x: 6, y: h - 4, width: w - 12, height: 2, rx: 1 }), svg("rect", { class: "bar", x: 6, y: h - 4, width: 0, height: 2, rx: 1 }));
+}
+
+/** Shorten a node label with an ellipsis until it fits `max` px (the meta beside it changes width live). */
+function fitName(el, full, max) {
+  if (el.textContent !== full) el.textContent = full;
+  if (el.getComputedTextLength() <= max) return;
+  let n = full.length - 1;
+  while (n > 1) {
+    el.textContent = `${full.slice(0, n)}…`;
+    if (el.getComputedTextLength() <= max) return;
+    n--;
+  }
+}
+
 function nodeTooltip(name) {
   const info = stepInfo(name);
   const st = stepTrace(name);
@@ -304,6 +343,16 @@ function updateGraphState() {
     const status = st ? st.status : "none";
     g.setAttribute("class", `node s-${status}${state.selected === name ? " selected" : ""}`);
     const meta = g.querySelector(".meta");
+    const bar = g.querySelector(".bar");
+    const barW = dims().w - (state.compact ? 12 : 28);
+    if (bar) bar.setAttribute("width", pr?.items?.total ? (barW * pr.items.done) / pr.items.total : 0);
+    if (state.compact) {
+      g.querySelector(".glyph").textContent = STATUS_GLYPH[status] ?? "○";
+      const ms = st && st.status !== "pending" ? (st.status === "running" ? elapsed(st.started_at) : st.duration_ms ?? pr?.elapsed_ms) : undefined;
+      meta.textContent = pr?.items && st?.status === "running" ? `${pr.items.done}/${pr.items.total}` : st?.cache?.hit ? "cached" : fmtDuration(ms);
+      fitName(g.querySelector(".name"), name, dims().w - 23 - 14 - (meta.textContent ? meta.getComputedTextLength() : 0));
+      continue;
+    }
     const parts = [info?.type ?? ""];
     if (st && st.status !== "pending") {
       const ms = st.status === "running" ? elapsed(st.started_at) : st.duration_ms ?? pr?.elapsed_ms;
@@ -313,8 +362,6 @@ function updateGraphState() {
     if (st?.cache?.hit) parts.push("cached");
     if (st?.attempts?.length > 1) parts.push(`×${st.attempts.length}`);
     meta.textContent = parts.join(" · ");
-    const bar = g.querySelector(".bar");
-    if (bar) bar.setAttribute("width", pr?.items?.total ? ((NODE_W - 28) * pr.items.done) / pr.items.total : 0);
   }
   for (const e of document.querySelectorAll("#viewport .edge")) {
     const from = stepTrace(e.dataset.from);
@@ -358,11 +405,12 @@ function applyTransform() {
 function graphBounds() {
   const xs = [...state.layout.pos.values()];
   if (!xs.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  const { w, h } = dims();
   return {
-    minX: Math.min(...xs.map((p) => p.x)) - NODE_W / 2,
-    maxX: Math.max(...xs.map((p) => p.x)) + NODE_W / 2,
-    minY: Math.min(...xs.map((p) => p.y)) - NODE_H / 2,
-    maxY: Math.max(...xs.map((p) => p.y)) + NODE_H / 2,
+    minX: Math.min(...xs.map((p) => p.x)) - w / 2,
+    maxX: Math.max(...xs.map((p) => p.x)) + w / 2,
+    minY: Math.min(...xs.map((p) => p.y)) - h / 2,
+    maxY: Math.max(...xs.map((p) => p.y)) + h / 2,
   };
 }
 
@@ -370,9 +418,15 @@ function fitGraph() {
   if (!state.layout) return;
   const box = $("#graph").getBoundingClientRect();
   const b = graphBounds();
-  const pad = 48;
-  const k = Math.min(1.25, (box.width - pad * 2) / Math.max(1, b.maxX - b.minX), (box.height - pad * 2 - 30) / Math.max(1, b.maxY - b.minY));
-  state.transform = { k, x: box.width / 2 - ((b.minX + b.maxX) / 2) * k, y: (box.height - 30) / 2 - ((b.minY + b.maxY) / 2) * k };
+  // Compact mode has no legend to clear, and never zooms out past readable text: a flow too
+  // big for the pane is framed from the top, and following keeps the running steps in view.
+  const pad = state.compact ? 16 : 48;
+  const legend = state.compact ? 0 : 30;
+  const fit = Math.min(1.25, (box.width - pad * 2) / Math.max(1, b.maxX - b.minX), (box.height - pad * 2 - legend) / Math.max(1, b.maxY - b.minY));
+  const k = state.compact ? Math.max(0.75, Math.min(1.1, fit)) : fit;
+  const x = box.width / 2 - ((b.minX + b.maxX) / 2) * k;
+  const y = (box.height - legend) / 2 - ((b.minY + b.maxY) / 2) * k;
+  state.transform = { k, x, y: fit < k ? pad - b.minY * k : y };
   applyTransform();
 }
 
@@ -392,7 +446,7 @@ function centerOn(names) {
   // Only move when the target is near the edge, so following doesn't jitter.
   const sx = state.transform.x + cx * state.transform.k;
   const sy = state.transform.y + cy * state.transform.k;
-  const margin = 90;
+  const margin = Math.min(90, box.width / 4, box.height / 4);
   if (sx > margin && sx < box.width - margin && sy > margin && sy < box.height - margin) return;
   state.transform = { ...state.transform, x: box.width / 2 - cx * state.transform.k, y: box.height / 2 - cy * state.transform.k };
   applyTransform();
@@ -434,6 +488,8 @@ function initPanZoom() {
     if (!drag.moved) {
       closePopover();
       selectFlow();
+      // In a narrow window the runs list overlays the graph; clicking the graph dismisses it.
+      if (matchMedia(NARROW).matches) setPane("runs", false);
     }
     drag = null;
   });
@@ -542,10 +598,11 @@ function positionPopover() {
   const pos = state.layout.pos.get(p.dataset.name);
   if (!pos) return;
   const { x, y, k } = state.transform;
+  const { w, h } = dims();
   const pane = $("#graph-pane").getBoundingClientRect();
-  let left = x + (pos.x + NODE_W / 2) * k + 10;
-  let top = y + (pos.y - NODE_H / 2) * k;
-  if (left + p.offsetWidth > pane.width - 8) left = x + (pos.x - NODE_W / 2) * k - p.offsetWidth - 10;
+  let left = x + (pos.x + w / 2) * k + 10;
+  let top = y + (pos.y - h / 2) * k;
+  if (left + p.offsetWidth > pane.width - 8) left = x + (pos.x - w / 2) * k - p.offsetWidth - 10;
   top = Math.max(8, Math.min(top, pane.height - p.offsetHeight - 8));
   p.style.left = `${Math.max(8, left)}px`;
   p.style.top = `${top}px`;
@@ -595,6 +652,7 @@ function initKeyboard() {
     const paneKeys = { "[": "runs", "]": "inspector", "\\": "logs" };
     if (paneKeys[ev.key]) return togglePane(paneKeys[ev.key]);
     if (ev.key === "g") return toggleFocusGraph();
+    if (ev.key === "c") return setCompact(!state.compact);
     if (ev.key === "f") return fitGraph();
     if (!state.layout) return;
     if (ev.key === "Enter" && state.selected && !ev.target.closest("#popover")) {
@@ -1118,7 +1176,9 @@ function renderToolbar() {
     const gone = t.status === "running" && !c.alive;
     pill.hidden = false;
     pill.className = `pill s-${st}`;
-    pill.textContent = `${STATUS_GLYPH[st] ?? ""} ${gone ? "running · process gone" : st}`;
+    const label = gone ? "running · process gone" : st;
+    pill.innerHTML = `${STATUS_GLYPH[st] ?? ""}<span class="pill-text"> ${esc(label)}</span>`;
+    pill.title = label;
     $("#run-id").textContent = t.run_id;
     const ms = t.duration_ms ?? elapsed(t.started_at);
     const etas = state.view.progress.steps.filter((s) => s.eta_ms !== undefined).map((s) => s.eta_ms);
@@ -1225,6 +1285,8 @@ function setPane(name, visible) {
   if (state.panes[name] === visible) return;
   state.panes[name] = visible;
   if (visible) state.panesBeforeFocus = null;
+  // Narrow windows show the runs list and inspector as overlays on the graph: one at a time.
+  if (visible && matchMedia(NARROW).matches && (name === "runs" || name === "inspector")) state.panes[name === "runs" ? "inspector" : "runs"] = false;
   applyPanes();
   try {
     localStorage.setItem(PANES_KEY, JSON.stringify(state.panes));
@@ -1271,10 +1333,46 @@ function initPanes() {
   } catch {
     /* unreadable or blocked storage: start with everything visible */
   }
+  // In a narrow window the overlays would cover the graph; start with just the graph and logs
+  // (without overwriting the layout saved for wider windows).
+  if (matchMedia(NARROW).matches) state.panes.runs = state.panes.inspector = false;
   applyPanes();
   for (const b of document.querySelectorAll(".view-toggles [data-pane]")) b.onclick = () => togglePane(b.dataset.pane);
   $("#btn-focus").onclick = toggleFocusGraph;
   for (const b of document.querySelectorAll("[data-hide]")) b.onclick = () => setPane(b.dataset.hide, false);
+}
+
+// ---------------------------------------------------------------- compact
+
+/** Switch between full and one-line nodes; also slims the header and logs bar (app.css). */
+function setCompact(on, { save = true } = {}) {
+  state.compact = on;
+  document.body.classList.toggle("compact", on);
+  $("#btn-compact").setAttribute("aria-pressed", String(on));
+  if (save) {
+    try {
+      localStorage.setItem(COMPACT_KEY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable: the choice just isn't remembered */
+    }
+  }
+  if (!state.flow) return;
+  hideTooltip();
+  renderGraph();
+  followRunning();
+  positionPopover();
+}
+
+/** Remembered choice, else on for narrow windows (e.g. side by side with a browser). */
+function initCompact() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(COMPACT_KEY);
+  } catch {
+    /* unreadable or blocked storage: fall back to the window width */
+  }
+  setCompact(saved === null ? window.innerWidth < 900 : saved === "1", { save: false });
+  $("#btn-compact").onclick = () => setCompact(!state.compact);
 }
 
 // ---------------------------------------------------------------- theme
@@ -1422,6 +1520,7 @@ async function boot() {
     return;
   }
   initTheme();
+  initCompact();
   initPanes();
   initPanZoom();
   initKeyboard();

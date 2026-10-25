@@ -21,10 +21,11 @@
       <span id="run-eta" class="muted"></span>
     </div>
     <div class="view-toggles" role="group" aria-label="Panes">
-      <button class="btn toggle" data-pane="runs" aria-pressed="true" title="Show/hide runs ([)">▤ Runs</button>
-      <button class="btn toggle" data-pane="inspector" aria-pressed="true" title="Show/hide inspector (])">▥ Inspector</button>
-      <button class="btn toggle" data-pane="logs" aria-pressed="true" title="Show/hide logs (\)">▁ Logs</button>
-      <button class="btn toggle" id="btn-focus" aria-pressed="false" title="Focus graph: hide every pane, or restore them (g)">⛶</button>
+      <button class="btn toggle" data-pane="runs" aria-pressed="true" title="Show/hide runs ([)" aria-label="Runs">▤<span class="lbl"> Runs</span></button>
+      <button class="btn toggle" data-pane="inspector" aria-pressed="true" title="Show/hide inspector (])" aria-label="Inspector">▥<span class="lbl"> Inspector</span></button>
+      <button class="btn toggle" data-pane="logs" aria-pressed="true" title="Show/hide logs (\)" aria-label="Logs">▁<span class="lbl"> Logs</span></button>
+      <button class="btn toggle" id="btn-focus" aria-pressed="false" title="Focus graph: hide every pane, or restore them (g)" aria-label="Focus graph">⛶</button>
+      <button class="btn toggle" id="btn-compact" aria-pressed="false" title="Compact graph: one-line nodes that follow the running steps (c)" aria-label="Compact graph">▭</button>
     </div>
     <div id="theme-picker">
       <button id="theme-btn" class="btn" aria-haspopup="menu" aria-expanded="false" title="Color theme">
@@ -33,10 +34,10 @@
       <div id="theme-menu" role="menu" aria-label="Theme" hidden></div>
     </div>
     <div class="controls">
-      <button id="btn-start" class="btn primary" title="Start a new run">▶ Start</button>
-      <button id="btn-pause" class="btn" title="Drain-pause: running steps finish, no new ones start" disabled>⏸ Pause</button>
-      <button id="btn-resume" class="btn" disabled>⏵ Resume</button>
-      <button id="btn-stop" class="btn danger" title="Interrupt the run (it can be resumed)" disabled>■ Stop</button>
+      <button id="btn-start" class="btn primary" title="Start a new run" aria-label="Start">▶<span class="lbl"> Start</span></button>
+      <button id="btn-pause" class="btn" title="Drain-pause: running steps finish, no new ones start" aria-label="Pause" disabled>⏸<span class="lbl"> Pause</span></button>
+      <button id="btn-resume" class="btn" aria-label="Resume" disabled>⏵<span class="lbl"> Resume</span></button>
+      <button id="btn-stop" class="btn danger" title="Interrupt the run (it can be resumed)" aria-label="Stop" disabled>■<span class="lbl"> Stop</span></button>
     </div>
   </header>
 
