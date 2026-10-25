@@ -49,6 +49,24 @@ The package ships four runnable examples (`hello`, `research`, `flaky`,
 ls "$(npm root -g)/dogyard/examples/flows"
 ```
 
+## Agent skill (`dogyard skills install`)
+
+DogYard ships an [agent skill](https://docs.claude.com/en/docs/claude-code/skills)
+that teaches Claude Code (and other agents that read `SKILL.md` skills) how to
+write, validate, test and run flows, and how to run long tasks in the background
+with `--detach`, `runs watch`/`logs`, `pause`/`stop` and `resume`.
+
+```bash
+dogyard skills install            # ./.claude/skills/dogyard (commit it with the project)
+dogyard skills install --global   # ~/.claude/skills/dogyard (every project)
+dogyard skills install --dir ~/.agents/skills   # any other skills folder
+dogyard skills install --force    # replace an older install after upgrading dogyard
+```
+
+The installed `SKILL.md` records the `dogyard_version` it came from.
+`skills uninstall` (same flags) removes it, and `skills path` prints the
+bundled copy.
+
 ## Quick start
 
 ```bash
@@ -400,6 +418,8 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 | `list [root]` | Find flows under a directory. |
 | `describe <flow>` | Print metadata, config and steps. |
 | `graph <flow> --format json\|dot\|mermaid` | Export the DAG. `json` is the canonical form for a future UI. |
+| `skills install [--global \| --dir <path>] [--force]` | Install the bundled agent skill (default `./.claude/skills/dogyard`). See [Agent skill](#agent-skill-dogyard-skills-install). |
+| `skills uninstall [--global \| --dir <path>]` / `skills path` | Remove an installed copy / print the bundled skill folder. |
 
 Exit codes: `0` success, `1` failure or validation error, `130` interrupted.
 

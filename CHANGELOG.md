@@ -7,6 +7,11 @@ the flow schema may change between minor versions.
 ## [Unreleased]
 
 ### Added
+- An agent skill for DogYard, shipped in the package (`skills/dogyard/`).
+  `dogyard skills install` copies it to `./.claude/skills/dogyard` (`--global`
+  for `~/.claude/skills`, `--dir` for any skills folder, `--force` to replace)
+  so Claude Code knows how to author, test and run flows, including long
+  background runs. Also `skills uninstall` and `skills path`.
 - `dogyard ui <flow>`: a local web run console. It has a runs list, a live,
   interactive DAG (pan/zoom, hover lineage, click a node for details, logs,
   input/output, attempts, map items and copy actions, click the background for

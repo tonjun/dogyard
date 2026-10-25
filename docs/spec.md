@@ -171,6 +171,7 @@ Core capabilities the CLI needs to expose (see the README CLI reference for exac
 - List/describe available flows.
 - Export/print a flow's graph in a visualizable form (for later reuse by Phase 2 UI).
 - Pause/continue a running run, and serve a local run console (`dogyard ui`).
+- Install a bundled agent skill (`skills/dogyard/SKILL.md` + references) into `.claude/skills` or any skills folder, so coding agents know how to author and operate flows (`dogyard skills install`).
 
 ### 3.5 Testing
 - Fixture-based tests per flow: given an input and mocked command output (keyed by step), assert on the output and/or on which path through the flow was taken (important for validating branching logic without depending on real command execution).
