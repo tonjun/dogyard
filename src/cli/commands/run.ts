@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { Option, type Command } from "commander";
@@ -6,12 +6,13 @@ import { parseDuration } from "../../duration.js";
 import { FlowError } from "../../errors.js";
 import { prepareResume } from "../../executor/checkpoint.js";
 import { MockRunner, RealRunner, RecordingRunner, type CommandRunner } from "../../executor/command-runner.js";
+import { PauseController } from "../../executor/pause.js";
 import { runFlow, type RunOptions, type RunResult } from "../../executor/run.js";
 import { loadMocksFile } from "../../testing/run-tests.js";
 import type { LoadedFlow } from "../../loader.js";
 import { historicalItemMedians } from "../../progress.js";
 import { cacheStats, newRunId, readTrace, recentRuns, traceFile, type RunTrace } from "../../trace.js";
-import { launchDetached, optionArgs, runStopFile } from "../background.js";
+import { launchDetached, optionArgs, runPauseFile, runStopFile, startBackgroundRun, type DetachedLaunch } from "../background.js";
 import { ProgressDisplay, stepTransitionLogger } from "../progress-display.js";
 import { fail, loadValidFlow, log, printJson, resolveTrigger } from "../util.js";
 
@@ -85,11 +86,12 @@ function commonOptions(flags: CommonRunFlags & { traceFile?: boolean }): Partial
  * Re-launch this command as a background process and print where to follow it.
  * The run id is fixed up front so it can be announced before the child starts.
  */
-function startDetached(loaded: LoadedFlow, runId: string, args: string[], flags: CommonRunFlags & { traceFile?: boolean }): void {
+function checkDetachFlags(flags: CommonRunFlags & { traceFile?: boolean }): void {
   if (flags.traceFile === false) fail("--detach needs a trace file; drop --no-trace-file");
   if (flags.trace) fail("--detach writes the output to <run>/stdout.json; drop --trace and read the trace file instead");
-  const runDir = path.dirname(traceFile(loaded.dir, runId, flags.traceDir));
-  const launched = launchDetached({ runDir, runId, args });
+}
+
+function announceDetached(loaded: LoadedFlow, runId: string, launched: DetachedLaunch, flags: CommonRunFlags): void {
   if (!flags.quiet) {
     const rel = path.relative(process.cwd(), loaded.dir);
     const flow = !rel ? "." : rel.startsWith("..") ? loaded.dir : rel;
@@ -111,34 +113,61 @@ function detachedHeader(kind: "run" | "resume", runId: string): boolean {
   return true;
 }
 
-/** How often a detached run checks for a `runs stop` request file. */
-const STOP_POLL_MS = 200;
+/** How often a run checks for `runs stop` / `runs pause` request files. */
+const CONTROL_POLL_MS = 200;
 
 /**
  * Wire SIGINT/SIGTERM (and, for a detached run, a `runs stop` request file) to
- * an AbortController so the trace records `interrupted`.
+ * an AbortController so the trace records `interrupted`. With a `pauseFile`
+ * (any run that writes a trace), its presence drain-pauses the run.
  */
-function installSignalHandlers(display?: ProgressDisplay, stopFile?: string): { signal: AbortSignal; dispose: () => void } {
+function installSignalHandlers(display?: ProgressDisplay, files: { stop?: string; pause?: string } = {}): { signal: AbortSignal; pause?: PauseController; dispose: () => void } {
   const ac = new AbortController();
+  const say = display ? (m: string) => display.log(m) : log;
   const interrupt = (what: string) => {
     if (!ac.signal.aborted) {
-      (display ? (m: string) => display.log(m) : log)(`\nReceived ${what}; interrupting run (trace will be checkpointed)…`);
+      say(`\nReceived ${what}; interrupting run (trace will be checkpointed)…`);
       ac.abort(new FlowError("interrupted", `Run interrupted by ${what}`));
     }
   };
   const handler = (sig: NodeJS.Signals) => interrupt(sig);
   process.on("SIGINT", handler);
   process.on("SIGTERM", handler);
-  const poll = stopFile ? setInterval(() => { if (existsSync(stopFile)) interrupt("stop request"); }, STOP_POLL_MS) : undefined;
+  // A request left over from an earlier process of this run (a resume) must not apply to this one.
+  if (files.pause) rmSync(files.pause, { force: true });
+  const pause = files.pause ? new PauseController() : undefined;
+  const { stop: stopFile, pause: pauseFile } = files;
+  const poll: NodeJS.Timeout | undefined =
+    stopFile || pauseFile
+      ? setInterval(() => {
+          if (stopFile && existsSync(stopFile)) interrupt("stop request");
+          if (pause && pauseFile && existsSync(pauseFile) !== pause.paused) {
+            pause.set(!pause.paused);
+            // While paused nothing else may be pending; keep the process alive until `runs continue`.
+            if (pause.paused) poll?.ref();
+            else poll?.unref();
+            say(pause.paused ? "Paused: running steps will finish, no new ones start (`runs continue` to go on)" : "Continuing");
+          }
+        }, CONTROL_POLL_MS)
+      : undefined;
   poll?.unref();
   return {
     signal: ac.signal,
+    ...(pause ? { pause } : {}),
     dispose: () => {
       process.off("SIGINT", handler);
       process.off("SIGTERM", handler);
       if (poll) clearInterval(poll);
     },
   };
+}
+
+/** Request files this run polls: `stop` only when detached, `pause` whenever it writes a trace. */
+function controlFiles(loaded: LoadedFlow, runId: string, flags: CommonRunFlags & { traceFile?: boolean }, detached: boolean): { stop?: string; pause?: string } {
+  const files: { stop?: string; pause?: string } = {};
+  if (detached) files.stop = runStopFile(loaded.dir, runId, flags.traceDir);
+  if (flags.traceFile !== false) files.pause = runPauseFile(loaded.dir, runId, flags.traceDir);
+  return files;
 }
 
 /** Live progress (unless -q): step transitions plus per-map status lines with an ETA seeded from earlier runs. */
@@ -189,22 +218,21 @@ export function registerRun(program: Command): void {
     const loaded = loadValidFlow(flowPath, { project: flags.project !== false });
     const trigger = resolveTrigger(flags);
     if (flags.detach) {
-      // The child cannot read our stdin (--input-file -), so hand it the resolved trigger as a file.
+      checkDetachFlags(flags);
       const runId = newRunId();
-      const runDir = path.dirname(traceFile(loaded.dir, runId, flags.traceDir));
-      mkdirSync(runDir, { recursive: true });
-      const triggerFile = path.join(runDir, "trigger.json");
-      writeFileSync(triggerFile, JSON.stringify(trigger));
-      return startDetached(loaded, runId, ["run", path.resolve(flowPath), ...optionArgs(cmd, PARENT_ONLY), "--input-file", triggerFile, "--run-id", runId], flags);
+      const extraArgs = optionArgs(cmd, PARENT_ONLY);
+      const launched = startBackgroundRun({ flowDir: loaded.dir, runId, trigger, extraArgs, ...(flags.traceDir ? { traceDir: flags.traceDir } : {}) });
+      return announceDetached(loaded, runId, launched, flags);
     }
     const detached = flags.runId ? detachedHeader("run", flags.runId) : false;
     const progress = startProgress(flags, loaded);
     const { runner, recorder } = buildRunner(flags, progress?.display);
-    const sig = installSignalHandlers(progress?.display, detached ? runStopFile(loaded.dir, flags.runId!, flags.traceDir) : undefined);
+    const runId = flags.runId ?? newRunId();
+    const sig = installSignalHandlers(progress?.display, controlFiles(loaded, runId, flags, detached));
     let result: RunResult;
     try {
-      const opts: RunOptions = { loaded, trigger, runner, signal: sig.signal, ...commonOptions(flags) };
-      if (flags.runId) opts.runId = flags.runId;
+      const opts: RunOptions = { loaded, trigger, runner, signal: sig.signal, runId, ...commonOptions(flags) };
+      if (sig.pause) opts.pause = sig.pause;
       if (progress) opts.onProgress = progress.onProgress;
       result = await runFlow(opts);
     } finally {
@@ -237,15 +265,20 @@ async function resumeAction(flowPath: string, runId: string, flags: CommonRunFla
     printJson(resume.output ?? null);
     return;
   }
-  if (flags.detach) return startDetached(loaded, runId, ["resume", path.resolve(flowPath), runId, ...optionArgs(cmd, PARENT_ONLY)], flags);
+  if (flags.detach) {
+    checkDetachFlags(flags);
+    const runDir = path.dirname(traceFile(loaded.dir, runId, flags.traceDir));
+    return announceDetached(loaded, runId, launchDetached({ runDir, runId, args: ["resume", path.resolve(flowPath), runId, ...optionArgs(cmd, PARENT_ONLY)] }), flags);
+  }
   const detached = detachedHeader("resume", runId);
   if (!flags.quiet) log(`Resuming run ${runId} (resume #${resume.resume_count})`);
   const progress = startProgress(flags, loaded, runId);
   const { runner, recorder } = buildRunner(flags, progress?.display);
-  const sig = installSignalHandlers(progress?.display, detached ? runStopFile(loaded.dir, runId, flags.traceDir) : undefined);
+  const sig = installSignalHandlers(progress?.display, controlFiles(loaded, runId, flags, detached));
   let result: RunResult;
   try {
     const opts: RunOptions = { loaded, trigger: resume.trigger, runner, signal: sig.signal, resume, ...commonOptions(flags) };
+    if (sig.pause) opts.pause = sig.pause;
     if (progress) opts.onProgress = progress.onProgress;
     result = await runFlow(opts);
   } finally {

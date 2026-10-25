@@ -7,6 +7,7 @@ import { registerCache } from "./commands/cache.js";
 import { registerInspect } from "./commands/inspect.js";
 import { registerQuality } from "./commands/quality.js";
 import { registerRun } from "./commands/run.js";
+import { registerUi } from "./commands/ui.js";
 import { describeError } from "./util.js";
 
 const require = createRequire(import.meta.url);
@@ -19,6 +20,7 @@ export function buildProgram(): Command {
   registerInspect(program);
   registerQuality(program);
   registerCache(program);
+  registerUi(program);
   return program;
 }
 

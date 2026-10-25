@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DogYard Console</title>
+  <script>
+    // Apply the saved theme before first paint (app.js keeps it in sync afterwards).
+    try { const t = localStorage.getItem("dogyard.theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header id="toolbar">
+    <button id="flow-title" class="brand" title="Flow details">
+      <span class="logo">dogyard</span><span class="sep">▸</span><span id="flow-name">…</span>
+    </button>
+    <div id="run-meta">
+      <span id="run-pill" class="pill" hidden></span>
+      <span id="run-id" class="mono muted"></span>
+      <span id="run-eta" class="muted"></span>
+    </div>
+    <div class="view-toggles" role="group" aria-label="Panes">
+      <button class="btn toggle" data-pane="runs" aria-pressed="true" title="Show/hide runs ([)">▤ Runs</button>
+      <button class="btn toggle" data-pane="inspector" aria-pressed="true" title="Show/hide inspector (])">▥ Inspector</button>
+      <button class="btn toggle" data-pane="logs" aria-pressed="true" title="Show/hide logs (\)">▁ Logs</button>
+      <button class="btn toggle" id="btn-focus" aria-pressed="false" title="Focus graph: hide every pane, or restore them (g)">⛶</button>
+    </div>
+    <div id="theme-picker">
+      <button id="theme-btn" class="btn" aria-haspopup="menu" aria-expanded="false" title="Color theme">
+        <span class="swatch"><i></i><i></i><i></i><i></i></span><span id="theme-name"></span><span class="chev">▾</span>
+      </button>
+      <div id="theme-menu" role="menu" aria-label="Theme" hidden></div>
+    </div>
+    <div class="controls">
+      <button id="btn-start" class="btn primary" title="Start a new run">▶ Start</button>
+      <button id="btn-pause" class="btn" title="Drain-pause: running steps finish, no new ones start" disabled>⏸ Pause</button>
+      <button id="btn-resume" class="btn" disabled>⏵ Resume</button>
+      <button id="btn-stop" class="btn danger" title="Interrupt the run (it can be resumed)" disabled>■ Stop</button>
+    </div>
+  </header>
+
+  <main id="layout">
+    <aside id="runs">
+      <div class="pane-head">Runs <span class="head-actions"><button id="btn-definition" class="link" title="Show the flow without run state">definition</button><button class="pane-close" data-hide="runs" title="Hide runs ([)" aria-label="Hide runs">×</button></span></div>
+      <ul id="run-list"></ul>
+    </aside>
+
+    <section id="graph-pane">
+      <div id="paused-banner" hidden>⏸ Paused. Running steps finish; nothing new starts until you resume.</div>
+      <svg id="graph" tabindex="0" aria-label="Flow graph">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" class="arrowhead"></path>
+          </marker>
+        </defs>
+        <g id="viewport"></g>
+      </svg>
+      <div id="graph-tools">
+        <label class="toggle" title="Keep the running steps in view"><input type="checkbox" id="follow-graph" checked> follow</label>
+        <button class="btn icon" id="zoom-out" title="Zoom out">−</button>
+        <button class="btn icon" id="zoom-in" title="Zoom in">+</button>
+        <button class="btn icon" id="zoom-fit" title="Fit (f)">⤢</button>
+      </div>
+      <div id="legend">
+        <span><i class="dot s-pending"></i>pending</span>
+        <span><i class="dot s-running"></i>running</span>
+        <span><i class="dot s-succeeded"></i>succeeded</span>
+        <span><i class="dot s-caught"></i>caught</span>
+        <span><i class="dot s-failed"></i>failed</span>
+        <span><i class="dot s-skipped"></i>skipped</span>
+        <span><i class="dot s-interrupted"></i>interrupted</span>
+      </div>
+      <div id="tooltip" hidden></div>
+      <div id="popover" hidden role="menu"></div>
+    </section>
+
+    <aside id="inspector">
+      <div class="tabs">
+        <button class="tab" data-tab="flow">Flow</button>
+        <button class="tab" data-tab="step">Step</button>
+        <button class="pane-close" data-hide="inspector" title="Hide inspector (])" aria-label="Hide inspector">×</button>
+      </div>
+      <div id="inspector-body"></div>
+    </aside>
+  </main>
+
+  <footer id="logs">
+    <div id="logs-resize" title="Drag to resize"></div>
+    <div class="logs-head">
+      <span class="logs-title">Logs</span>
+      <div id="log-filters"></div>
+      <label class="toggle"><input type="checkbox" id="log-follow" checked> follow</label>
+      <button class="pane-close" data-hide="logs" title="Hide logs (\)" aria-label="Hide logs">×</button>
+    </div>
+    <div id="log-note" class="muted" hidden></div>
+    <pre id="log-body"></pre>
+  </footer>
+
+  <dialog id="start-dialog">
+    <form method="dialog" id="start-form">
+      <h2>Start a run</h2>
+      <label for="trigger-input">Trigger (JSON)</label>
+      <textarea id="trigger-input" rows="8" spellcheck="false"></textarea>
+      <div id="trigger-hint" class="muted small"></div>
+      <label for="concurrency-input">Max concurrency <span class="muted">(optional)</span></label>
+      <input id="concurrency-input" type="number" min="1" placeholder="flow default">
+      <p id="start-error" class="error" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn" formnovalidate>Cancel</button>
+        <button id="start-submit" value="start" class="btn primary">▶ Start</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="text-dialog">
+    <div class="dialog-head">
+      <h2 id="text-title"></h2>
+      <div class="dialog-tools">
+        <div id="text-extra"></div>
+        <button id="text-max" class="btn small toggle" aria-pressed="false" title="Maximize" aria-label="Toggle maximize">⤢</button>
+      </div>
+    </div>
+    <pre id="text-body"></pre>
+    <div class="dialog-actions">
+      <button id="text-copy" class="btn">Copy</button>
+      <button id="text-close" class="btn primary">Close</button>
+    </div>
+  </dialog>
+
+  <div id="toasts"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

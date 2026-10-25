@@ -170,6 +170,7 @@ Core capabilities the CLI needs to expose (see the README CLI reference for exac
 - Run a flow's eval dataset and produce a scored report.
 - List/describe available flows.
 - Export/print a flow's graph in a visualizable form (for later reuse by Phase 2 UI).
+- Pause/continue a running run, and serve a local run console (`dogyard ui`).
 
 ### 3.5 Testing
 - Fixture-based tests per flow: given an input and mocked command output (keyed by step), assert on the output and/or on which path through the flow was taken (important for validating branching logic without depending on real command execution).
@@ -216,9 +217,13 @@ Core capabilities the CLI needs to expose (see the README CLI reference for exac
 
 ---
 
-## 7. Phase 2 (Future): UI
+## 7. Phase 2: UI
 
-Not built in v1, but v1 should avoid decisions that would block it later:
+**Run console (built).** `dogyard ui <flow>` (`src/ui/server.ts`, static page in `src/ui/static/`) is a local web app on `node:http`. It reads only the files the CLI already writes. `GET /api/flow` is `describeFlow` (`src/ui/flow-info.ts`): the graph, each step's definition (minus `mock`) with its YAML slice and resolved cwd, effective config with sources, and test/eval presence. `GET /api/runs[/:id]` return traces plus `computeProgress`. `GET /api/runs/:id/events` is SSE that polls `trace.json` and tails `run.log`. Runs it starts are `--detach` runs (`startBackgroundRun`), and stop/pause/continue/resume use the same control files and helpers as `runs stop/pause/continue` and `resume --detach`. It binds to loopback, checks `Host`, and requires a per-server token on `/api`.
+
+**Drain pause.** `RunOptions.pause` is a `PauseGate` (`src/executor/pause.ts`). While it is closed the scheduler launches no ready steps and map items wait before starting; in-flight work finishes. The trace carries `paused_at` (status stays `running`), and it is cleared when the gate opens or the run ends. If the run is aborted while idle and paused, it ends `interrupted` with the remaining steps still `pending`, so it can be resumed. `run_timeout` keeps counting. The CLI drives the gate from `.runs/<run_id>/pause` (polled every 200 ms for any run with a trace file) and refs its poll timer while paused, so the process stays alive.
+
+Still future, and v1 should avoid decisions that would block it:
 - Config/flow editor, ideally generated from/validated against the same definitions the CLI uses (no duplicated schema).
 - Visualization that reuses the CLI's own graph-export output rather than a second implementation.
 - A run/trace viewer that reads the same trace artifacts the CLI already produces.

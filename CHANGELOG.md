@@ -7,6 +7,18 @@ the flow schema may change between minor versions.
 ## [Unreleased]
 
 ### Added
+- `dogyard ui <flow>`: a local web run console. It has a runs list, a live,
+  interactive DAG (pan/zoom, hover lineage, click a node for details, logs,
+  input/output, attempts, map items and copy actions, click the background for
+  flow details), an inspector, streamed `run.log` filterable by step, and
+  ▶ Start / ⏸ Pause / ⏵ Resume / ■ Stop controls. Runs started there are
+  `--detach` runs.
+- The `ui` console's runs, inspector and logs panes can each be shown or
+  hidden (toolbar toggles, `×`, `[` `]` `\`; `g` focuses the graph). The
+  choice is remembered per browser.
+- Drain pause: `dogyard runs pause <flow> [run_id]` / `runs continue`. Running
+  steps and map items finish, nothing new starts, and the trace records
+  `paused_at`. Library users pass a `PauseController` as `RunOptions.pause`.
 - `run --detach` / `resume --detach` run a flow in the background (surviving
   the terminal or SSH session), logging stderr to `.runs/<run_id>/run.log`.
   `dogyard runs logs <flow> [run_id] [-f]` prints or follows the log, and

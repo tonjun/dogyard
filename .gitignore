@@ -6,3 +6,4 @@ evals/reports/
 .DS_Store
 .dogyard/
 coverage/
+downloaded_files/

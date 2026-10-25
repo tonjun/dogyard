@@ -81,6 +81,8 @@ export interface RunTrace {
   error?: FlowErrorJSON;
   /** Name of the terminal step that ended the run, if any. */
   terminal_step?: string;
+  /** Set while the run is drain-paused (status stays `running`). */
+  paused_at?: string;
   steps: StepTrace[];
 }
 
@@ -98,7 +100,25 @@ export function writeTrace(file: string, trace: RunTrace): void {
   mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp`;
   writeFileSync(tmp, JSON.stringify(trace, null, 2));
-  renameSync(tmp, file);
+  renameWithRetry(tmp, file);
+}
+
+const TRANSIENT_RENAME_ERRORS = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+/**
+ * renameSync, retried briefly on Windows' transient lock errors: replacing a file that another
+ * process (a `runs watch` or UI poller) has open fails with EPERM/EACCES until it is closed.
+ */
+export function renameWithRetry(from: string, to: string, rename: (from: string, to: string) => void = renameSync, timeoutMs = 2000): void {
+  const deadline = Date.now() + timeoutMs;
+  for (let delay = 5; ; delay = Math.min(delay * 2, 100)) {
+    try {
+      return rename(from, to);
+    } catch (err) {
+      if (!TRANSIENT_RENAME_ERRORS.has((err as NodeJS.ErrnoException).code ?? "") || Date.now() >= deadline) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+    }
+  }
 }
 
 export function readTrace(file: string): RunTrace {
