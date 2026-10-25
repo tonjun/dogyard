@@ -121,17 +121,17 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
 
   let runError: FlowError | undefined;
   let ended = false;
+  let finalStatus = "failed" as RunTrace["status"];
   let terminalStep: string | undefined;
   let output: unknown;
 
+  // Only recorded here; applied to the trace at the end with output, so a checkpoint taken while
+  // in-flight steps drain never shows a finished status without its output.
   const finish = (status: RunTrace["status"], err?: FlowError) => {
     if (ended) return;
     ended = true;
-    trace.status = status;
-    if (err) {
-      runError = err;
-      trace.error = err.toJSON();
-    }
+    finalStatus = status;
+    if (err) runError = err;
   };
 
   const endRun = (status: RunTrace["status"], err?: FlowError) => {
@@ -253,6 +253,8 @@ export async function runFlow(opts: RunOptions): Promise<RunResult> {
     opts.signal?.removeEventListener("abort", onExternalAbort);
   }
 
+  trace.status = finalStatus;
+  if (runError) trace.error = runError.toJSON();
   // Mark still-pending steps as skipped when a terminal step ended the run successfully.
   if (trace.status === "succeeded") {
     for (const s of states.values()) {
