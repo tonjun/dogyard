@@ -65,9 +65,12 @@ export function uninstallSkill(opts: SkillTargetOptions = {}): string | undefine
 
 /** Add `metadata.dogyard_version` to the SKILL.md frontmatter so a stale install can be spotted. */
 export function stampVersion(skillMd: string, version: string): string {
-  const end = skillMd.indexOf("\n---", 4);
-  if (!skillMd.startsWith("---\n") || end < 0) return skillMd;
-  return `${skillMd.slice(0, end)}\nmetadata:\n  dogyard_version: ${version}${skillMd.slice(end)}`;
+  // a Windows checkout (core.autocrlf) has CRLF line endings; keep whichever the file uses
+  const m = /^---(\r?\n)[\s\S]*?(\r?\n)---/.exec(skillMd);
+  if (!m) return skillMd;
+  const eol = m[1]!;
+  const end = m[0].length - 3 - m[2]!.length;
+  return `${skillMd.slice(0, end)}${eol}metadata:${eol}  dogyard_version: ${version}${skillMd.slice(end)}`;
 }
 
 function packageVersion(): string {

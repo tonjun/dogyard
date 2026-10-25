@@ -7,7 +7,7 @@ import { buildProgram } from "../../src/cli/index.js";
 import { bundledSkillsDir, installSkill, skillTargetDir, stampVersion, uninstallSkill } from "../../src/skills.js";
 
 const tmp = (prefix: string) => mkdtempSync(path.join(tmpdir(), prefix));
-const frontmatter = (md: string) => YAML.parse(md.split(/^---$/m)[1]!) as Record<string, unknown>;
+const frontmatter = (md: string) => YAML.parse(md.split(/^---\r?$/m)[1]!) as Record<string, unknown>;
 
 describe("skillTargetDir", () => {
   it("resolves project, global and --dir targets", () => {
@@ -53,6 +53,7 @@ describe("stampVersion", () => {
   it("adds metadata to the frontmatter and leaves files without one unchanged", () => {
     expect(stampVersion("---\nname: x\n---\nbody\n", "1.2.3")).toBe("---\nname: x\nmetadata:\n  dogyard_version: 1.2.3\n---\nbody\n");
     expect(stampVersion("no frontmatter\n", "1.2.3")).toBe("no frontmatter\n");
+    expect(stampVersion("---\r\nname: x\r\n---\r\nbody\r\n", "1.2.3")).toBe("---\r\nname: x\r\nmetadata:\r\n  dogyard_version: 1.2.3\r\n---\r\nbody\r\n");
   });
 });
 
