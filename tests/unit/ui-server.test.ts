@@ -74,7 +74,9 @@ function events(urlPath: string, done: (events: Array<{ event: string; data: any
     req.on("error", (err) => (seen.length ? resolve(seen) : reject(err)));
     setTimeout(() => {
       req.destroy();
-      reject(new Error(`timed out; saw ${seen.map((e) => e.event).join(",")}`));
+      const lastTrace = seen.filter((e) => e.event === "trace").at(-1)?.data.trace;
+      const logText = seen.filter((e) => e.event === "log").map((e) => e.data.text).join("");
+      reject(new Error(`timed out; saw ${seen.map((e) => e.event).join(",")}; last trace status=${lastTrace?.status} resume_count=${lastTrace?.resume_count} error=${JSON.stringify(lastTrace?.error)}\n--- log tail ---\n${logText.slice(-2000)}`));
     }, ms).unref();
     req.end();
   });

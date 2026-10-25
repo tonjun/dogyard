@@ -129,7 +129,7 @@ export function stepSnippets(file: string): Map<string, string> {
   const out = new Map<string, string>();
   let text: string;
   try {
-    text = readFileSync(file, "utf8");
+    text = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
   } catch {
     return out;
   }
