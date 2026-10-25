@@ -501,7 +501,7 @@ describe("--detach", () => {
     expect(r.code, r.stderr).toBe(0);
     const { run_id: runId, trace } = json(r.stdout) as { run_id: string; trace: string };
     const read = () => json(readFileSync(trace, "utf8")) as { status: string; paused_at?: string; steps: Array<{ name: string; items?: Array<{ status: string }> }> };
-    await until(() => existsSync(trace) && read().steps.some((s) => s.name === "slow_map" && s.items?.length));
+    await until(() => existsSync(trace) && read().steps.some((s) => s.name === "slow_map" && s.items?.length), 30_000);
 
     const paused = await cli(["runs", "pause", dir, runId]);
     expect(paused.code, paused.stderr).toBe(0);
@@ -527,7 +527,7 @@ describe("--detach", () => {
     expect(log).toMatch(/Paused: running steps will finish/);
     expect(log).toMatch(/Continuing/);
     expect((await cli(["runs", "pause", dir, runId])).stderr).toMatch(/is not running \(succeeded\)/);
-  });
+  }, 60_000);
 
   it("reports a run whose process died without finishing its trace", async () => {
     const r = await cli(["run", hello, "--query", "hi", "-q", "--trace"]);

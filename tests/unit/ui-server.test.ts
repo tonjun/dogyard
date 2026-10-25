@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -200,6 +200,11 @@ describe("UI server controls on live and stopped runs", () => {
     expect(seen[0]!.data.control).toMatchObject({ alive: true, detached: true, pause_requested: true, has_log: false });
     expect((await call("POST", `/api/runs/${id}/continue`)).status).toBe(200);
     expect((await call("POST", `/api/runs/${id}/stop`)).status).toBe(200);
+    // On Windows stopRun only writes the stop file (the run polls for it); this fake run doesn't, so end it here.
+    if (process.platform === "win32") {
+      expect(existsSync(path.join(runDir, "stop"))).toBe(true);
+      child.kill();
+    }
     await exited;
   });
 
@@ -214,7 +219,7 @@ describe("UI server controls on live and stopped runs", () => {
     const resumed = await call("POST", `/api/runs/${started.run_id}/resume`, { body: { force: true } });
     expect(resumed.status, resumed.body).toBe(200);
     const seen = await events(`/api/runs/${started.run_id}/events`, (ev) => ev.some((e) => e.event === "trace" && e.data.trace.status === "succeeded" && e.data.trace.resume_count === 1));
-    expect(seen.at(-1)!.data.trace.output).toMatchObject({ kind: "short", value: "HI" });
+    expect(seen.filter((e) => e.event === "trace").at(-1)!.data.trace.output).toMatchObject({ kind: "short", value: "HI" });
   });
 });
 

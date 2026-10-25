@@ -104,7 +104,7 @@ function effectiveConfig(loaded: LoadedFlow): FlowInfo["config"] {
 function commandCwd(dir: string, name: string, step: Step): string | undefined {
   const cmd = step.type === "command" ? step : step.type === "map" && step.step.type === "command" ? step.step : undefined;
   if (!cmd) return undefined;
-  return path.relative(dir, resolveStepCwd(dir, name, cmd)) || ".";
+  return path.relative(dir, resolveStepCwd(dir, name, cmd)).split(path.sep).join("/") || ".";
 }
 
 function withoutMock(step: Step): Record<string, unknown> {
