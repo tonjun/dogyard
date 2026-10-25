@@ -7,6 +7,10 @@ the flow schema may change between minor versions.
 ## [Unreleased]
 
 ### Added
+- `run --detach` / `resume --detach` run a flow in the background (surviving
+  the terminal or SSH session), logging stderr to `.runs/<run_id>/run.log`.
+  `dogyard runs logs <flow> [run_id] [-f]` prints or follows the log, and
+  `dogyard runs stop <flow> [run_id]` interrupts the run so it can be resumed.
 - Live progress on stderr for `run`/`resume`: one status line per running
   step, e.g. `analyze_posts  142/300  ● 3 failed  ● 2 caught  ● 40 cached
   ETA 1h12m`. On a terminal it redraws in place with command stderr scrolling

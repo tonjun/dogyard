@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Unit test coverage (branches >= 85%)
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm run test:coverage
       - run: npm run build
 
   package:
