@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DogYard Console</title>
+  <script>
+    // Apply the saved theme before first paint (app.js keeps it in sync afterwards).
+    try { const t = localStorage.getItem("dogyard.theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -21,6 +25,12 @@
       <button class="btn toggle" data-pane="inspector" aria-pressed="true" title="Show/hide inspector (])">▥ Inspector</button>
       <button class="btn toggle" data-pane="logs" aria-pressed="true" title="Show/hide logs (\)">▁ Logs</button>
       <button class="btn toggle" id="btn-focus" aria-pressed="false" title="Focus graph: hide every pane, or restore them (g)">⛶</button>
+    </div>
+    <div id="theme-picker">
+      <button id="theme-btn" class="btn" aria-haspopup="menu" aria-expanded="false" title="Color theme">
+        <span class="swatch"><i></i><i></i><i></i><i></i></span><span id="theme-name"></span><span class="chev">▾</span>
+      </button>
+      <div id="theme-menu" role="menu" aria-label="Theme" hidden></div>
     </div>
     <div class="controls">
       <button id="btn-start" class="btn primary" title="Start a new run">▶ Start</button>
@@ -106,7 +116,10 @@
   <dialog id="text-dialog">
     <div class="dialog-head">
       <h2 id="text-title"></h2>
-      <div id="text-extra"></div>
+      <div class="dialog-tools">
+        <div id="text-extra"></div>
+        <button id="text-max" class="btn small toggle" aria-pressed="false" title="Maximize" aria-label="Toggle maximize">⤢</button>
+      </div>
     </div>
     <pre id="text-body"></pre>
     <div class="dialog-actions">

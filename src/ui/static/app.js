@@ -39,6 +39,8 @@ const state = {
 
 const PANES = ["runs", "inspector", "logs"];
 const PANES_KEY = "dogyard.panes";
+const TEXT_MAX_KEY = "dogyard.textMax";
+const THEME_KEY = "dogyard.theme";
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -122,20 +124,32 @@ function stepInfo(name) {
   return state.flow?.steps.find((s) => s.name === name);
 }
 
+/** Line-based YAML highlighter; block scalar (`|`/`>`) contents are left plain. */
 function highlightYaml(text) {
+  let blockIndent = -1; // indent of the line that opened a block scalar, or -1
+  const value = (s) => {
+    const c = s.indexOf(" #");
+    const body = c >= 0 ? s.slice(0, c) : s;
+    const com = c >= 0 ? `<span class="y-com">${esc(s.slice(c))}</span>` : "";
+    const lit = /^(\s*)(true|false|null|~|-?\d+(?:\.\d+)?)(\s*)$/.exec(body);
+    const blk = /^(\s*)([|>][-+]?)(\s*)$/.exec(body);
+    if (lit) return `${lit[1]}<span class="y-lit">${lit[2]}</span>${lit[3]}${com}`;
+    if (blk) return `${blk[1]}<span class="y-punct">${esc(blk[2])}</span>${blk[3]}${com}`;
+    return `${esc(body).replace(/(&quot;.*?&quot;|&#39;.*?&#39;)/g, '<span class="y-str">$1</span>')}${com}`;
+  };
   return text
     .split("\n")
     .map((line) => {
-      const m = /^(\s*(?:- )?)([\w-]+)(:)(.*)$/.exec(line);
-      const rest = (s) => {
-        const c = s.indexOf(" #");
-        const body = c >= 0 ? s.slice(0, c) : s;
-        const com = c >= 0 ? `<span class="y-com">${esc(s.slice(c))}</span>` : "";
-        return `${esc(body).replace(/(&quot;.*?&quot;|&#39;.*?&#39;)/g, '<span class="y-str">$1</span>')}${com}`;
-      };
+      const indent = /^\s*/.exec(line)[0].length;
+      if (blockIndent >= 0 && (line.trim() === "" || indent > blockIndent)) return esc(line);
+      blockIndent = -1;
       if (/^\s*#/.test(line)) return `<span class="y-com">${esc(line)}</span>`;
-      if (m) return `${esc(m[1])}<span class="y-key">${esc(m[2])}</span>${m[3]}${rest(m[4])}`;
-      return rest(line);
+      const [, lead, dash = "", rest] = /^(\s*)(- )?(.*)$/.exec(line);
+      const m = /^([\w-]+)(:)(.*)$/.exec(rest);
+      if (/^\s*[|>][-+]?\s*(#.*)?$/.test(m ? m[3] : rest)) blockIndent = indent;
+      const head = `${lead}${dash ? '<span class="y-punct">-</span> ' : ""}`;
+      if (m) return `${head}<span class="y-key">${esc(m[1])}</span>${m[2]}${value(m[3])}`;
+      return head + value(rest);
     })
     .join("\n");
 }
@@ -826,7 +840,7 @@ function initInspector() {
     if (act === "export") viewExport("mermaid");
     if (act === "copy") copy(b.dataset.text);
     if (act === "logs") filterLogs(b.dataset.step);
-    if (act === "yaml") showText(`${b.dataset.step} · flow.yaml`, stepInfo(b.dataset.step).yaml);
+    if (act === "yaml") showText(`${b.dataset.step} · flow.yaml`, stepInfo(b.dataset.step).yaml, "", "yaml");
     if (act === "item") {
       state.item = Number(b.dataset.index);
       renderInspector();
@@ -841,10 +855,11 @@ function initInspector() {
 
 // ---------------------------------------------------------------- text dialog
 
-function showText(title, text, extraHtml = "") {
+function showText(title, text, extraHtml = "", lang) {
   $("#text-title").textContent = title;
   $("#text-extra").innerHTML = extraHtml;
-  $("#text-body").textContent = text;
+  if (lang === "yaml") $("#text-body").innerHTML = highlightYaml(text);
+  else $("#text-body").textContent = text;
   const d = $("#text-dialog");
   if (!d.open) d.showModal();
 }
@@ -852,7 +867,7 @@ function showText(title, text, extraHtml = "") {
 async function viewSource() {
   try {
     const { text } = await api("/api/flow/source");
-    showText(state.flow.file, text);
+    showText(state.flow.file, text, "", "yaml");
   } catch (err) {
     toast(err.message, "error");
   }
@@ -872,6 +887,25 @@ async function viewExport(format) {
 function initTextDialog() {
   $("#text-close").onclick = () => $("#text-dialog").close();
   $("#text-copy").onclick = () => copy($("#text-body").textContent);
+  const setMax = (on) => {
+    $("#text-dialog").classList.toggle("maximized", on);
+    const b = $("#text-max");
+    b.setAttribute("aria-pressed", String(on));
+    b.textContent = on ? "⤡" : "⤢";
+    b.title = on ? "Restore size" : "Maximize";
+  };
+  try {
+    setMax(localStorage.getItem(TEXT_MAX_KEY) === "1");
+  } catch {
+    setMax(false);
+  }
+  $("#text-max").onclick = () => {
+    const on = !$("#text-dialog").classList.contains("maximized");
+    setMax(on);
+    try {
+      localStorage.setItem(TEXT_MAX_KEY, on ? "1" : "0");
+    } catch {}
+  };
 }
 
 // ---------------------------------------------------------------- logs
@@ -1243,6 +1277,116 @@ function initPanes() {
   for (const b of document.querySelectorAll("[data-hide]")) b.onclick = () => setPane(b.dataset.hide, false);
 }
 
+// ---------------------------------------------------------------- theme
+
+const THEMES = [
+  { group: null, items: [["", "System"]] },
+  {
+    group: "Light",
+    items: [
+      ["light", "Light"],
+      ["github-light", "GitHub Light"],
+      ["solarized-light", "Solarized Light"],
+      ["catppuccin-latte", "Catppuccin Latte"],
+      ["rose-pine-dawn", "Rosé Pine Dawn"],
+    ],
+  },
+  {
+    group: "Dark",
+    items: [
+      ["dark", "Dark"],
+      ["github-dark", "GitHub Dark"],
+      ["vercel", "Vercel"],
+      ["linear", "Linear"],
+      ["one-dark", "One Dark"],
+      ["rose-pine", "Rosé Pine"],
+      ["night-owl", "Night Owl"],
+      ["nord", "Nord"],
+      ["gruvbox", "Gruvbox"],
+      ["dracula", "Dracula"],
+      ["tokyo-night", "Tokyo Night"],
+      ["catppuccin-mocha", "Catppuccin Mocha"],
+      ["high-contrast", "High Contrast"],
+    ],
+  },
+];
+const THEME_NAMES = new Map(THEMES.flatMap((g) => g.items));
+
+function setTheme(id) {
+  if (id) document.documentElement.dataset.theme = id;
+  else delete document.documentElement.dataset.theme;
+  for (const n of document.querySelectorAll("#theme-name > span")) n.classList.toggle("current", n.dataset.themeId === id);
+  for (const b of document.querySelectorAll("#theme-menu [data-theme-id]")) b.setAttribute("aria-checked", String(b.dataset.themeId === id));
+  try {
+    if (id) localStorage.setItem(THEME_KEY, id);
+    else localStorage.removeItem(THEME_KEY);
+  } catch {
+    /* storage unavailable: the choice just isn't remembered */
+  }
+}
+
+function toggleThemeMenu(open) {
+  const menu = $("#theme-menu");
+  menu.hidden = !open;
+  $("#theme-btn").setAttribute("aria-expanded", String(open));
+  if (open) (menu.querySelector('[aria-checked="true"]') ?? menu.querySelector("button")).focus();
+}
+
+/** The theme is applied before first paint by index.html; this builds the picker menu. */
+function initTheme() {
+  const swatch = (id) => `<span class="swatch${id ? "" : " system"}"${id ? ` data-theme="${id}"` : ""}><i></i><i></i><i></i><i></i></span>`;
+  $("#theme-name").innerHTML = [...THEME_NAMES].map(([id, name]) => `<span data-theme-id="${id}">${name}</span>`).join("");
+  const menu = $("#theme-menu");
+  menu.innerHTML = THEMES.map(
+    (g) =>
+      (g.group ? `<div class="pop-label">${g.group}</div>` : "") +
+      g.items.map(([id, name]) => `<button role="menuitemradio" data-theme-id="${id}">${swatch(id)}<span>${name}</span><span class="check">✓</span></button>`).join(""),
+  ).join("");
+  // A saved theme that no longer exists falls back to System.
+  const current = document.documentElement.dataset.theme ?? "";
+  setTheme(THEME_NAMES.has(current) ? current : "");
+
+  $("#theme-btn").onclick = () => toggleThemeMenu(menu.hidden);
+  menu.onclick = (ev) => {
+    const b = ev.target.closest("[data-theme-id]");
+    if (!b) return;
+    setTheme(b.dataset.themeId);
+    toggleThemeMenu(false);
+    $("#theme-btn").focus();
+  };
+  // Hovering previews the theme; leaving the menu without choosing restores the current one.
+  menu.onmouseover = (ev) => {
+    const b = ev.target.closest("[data-theme-id]");
+    if (!b) return;
+    if (b.dataset.themeId) document.documentElement.dataset.theme = b.dataset.themeId;
+    else delete document.documentElement.dataset.theme;
+  };
+  menu.onmouseleave = () => {
+    const id = menu.querySelector('[aria-checked="true"]').dataset.themeId;
+    if (id) document.documentElement.dataset.theme = id;
+    else delete document.documentElement.dataset.theme;
+  };
+  menu.onkeydown = (ev) => {
+    const items = [...menu.querySelectorAll("button")];
+    const i = items.indexOf(document.activeElement);
+    if (ev.key === "Escape") {
+      toggleThemeMenu(false);
+      $("#theme-btn").focus();
+    } else if (ev.key === "ArrowDown") items[(i + 1) % items.length].focus();
+    else if (ev.key === "ArrowUp") items[(i - 1 + items.length) % items.length].focus();
+    else return;
+    // Keep the graph's arrow/Escape shortcuts from firing too.
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+  document.addEventListener("mousedown", (ev) => {
+    if (!menu.hidden && !ev.target.closest("#theme-picker")) {
+      toggleThemeMenu(false);
+      menu.onmouseleave();
+    }
+  });
+}
+
 // ---------------------------------------------------------------- boot
 
 function renderAll() {
@@ -1277,6 +1421,7 @@ async function boot() {
     document.body.innerHTML = '<p style="padding:24px">Open the URL printed by <code>dogyard ui</code>; it includes the access token.</p>';
     return;
   }
+  initTheme();
   initPanes();
   initPanZoom();
   initKeyboard();
