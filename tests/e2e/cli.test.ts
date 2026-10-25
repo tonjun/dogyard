@@ -246,6 +246,23 @@ describe("test / eval", () => {
     expect(json(run.stdout)).toEqual({ kind: "long", value: "HELLO" });
     expect((await cli(["new", "my-flow", "--dir", work])).code).toBe(1);
   });
+  it("installs the agent skill into the project or a --dir, refusing to overwrite without --force", async () => {
+    const project = path.join(work, "skills-project");
+    mkdirSync(project);
+    const r = await cli(["skills", "install"], { cwd: project });
+    expect(r.code, r.stderr).toBe(0);
+    expect(existsSync(path.join(project, ".claude/skills/dogyard/SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(project, ".claude/skills/dogyard/references/cli.md"))).toBe(true);
+    expect((await cli(["skills", "install"], { cwd: project })).code).toBe(1);
+    expect((await cli(["skills", "install", "--force"], { cwd: project })).code).toBe(0);
+    const dir = path.join(work, "agent-skills");
+    expect((await cli(["skills", "install", "--dir", dir])).code).toBe(0);
+    expect(readFileSync(path.join(dir, "dogyard/SKILL.md"), "utf8")).toMatch(/dogyard_version: \d+\.\d+\.\d+/);
+    expect((await cli(["skills", "install", "--global", "--dir", dir])).code).toBe(1);
+    expect((await cli(["skills", "uninstall", "--dir", dir])).code).toBe(0);
+    expect(existsSync(path.join(dir, "dogyard"))).toBe(false);
+    expect(slash((await cli(["skills", "path"])).stdout.trim())).toMatch(/\/skills\/dogyard$/);
+  });
   it("scaffolds a step folder for an existing command step with new-step", async () => {
     const dir = path.join(work, "research-newstep");
     cpSync(research, dir, { recursive: true });

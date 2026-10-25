@@ -7,6 +7,7 @@ import { registerCache } from "./commands/cache.js";
 import { registerInspect } from "./commands/inspect.js";
 import { registerQuality } from "./commands/quality.js";
 import { registerRun } from "./commands/run.js";
+import { registerSkills } from "./commands/skills.js";
 import { registerUi } from "./commands/ui.js";
 import { describeError } from "./util.js";
 
@@ -21,6 +22,7 @@ export function buildProgram(): Command {
   registerQuality(program);
   registerCache(program);
   registerUi(program);
+  registerSkills(program);
   return program;
 }
 

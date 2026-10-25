@@ -113,6 +113,15 @@ to `dist/`) plus a token-guarded JSON/SSE API over the same files. It starts
 runs as `--detach` children and controls them through the helpers above;
 `ui/flow-info.ts` (`describeFlow`) shapes the flow definition for the page.
 
+**Agent skill:** `skills/dogyard/` (top level, shipped in the npm package) is
+a Claude-style skill — `SKILL.md` plus `references/` — that teaches agents to
+author and operate flows. `src/skills.ts` (`installSkill`/`uninstallSkill`,
+`bundledSkillsDir`) copies it to `.claude/skills/dogyard`, `~/.claude/skills`
+(`--global`) or `--dir`, stamping `metadata.dogyard_version`; the CLI is
+`cli/commands/skills.ts`. Keep the skill in sync with CLI/schema changes;
+`tests/unit/skills.test.ts` fails if a top-level command is missing from
+`references/cli.md`.
+
 **Schemas:** `src/schema/*.ts` (Zod) define `flow.yaml`, `workflows.yaml`
 (project defaults), `*.test.yaml`, and `eval.yaml`/dataset shapes; these are
 the source of truth for what's valid in each YAML file, not the README.
