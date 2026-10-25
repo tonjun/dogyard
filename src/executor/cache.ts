@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseDuration } from "../duration.js";
 import { evaluateExpression } from "../expr.js";
 import { stableStringify, type LoadedFlow } from "../loader.js";
 import type { CacheConfig, CommandStep } from "../schema/flow.js";
-import { now, type CacheTrace } from "../trace.js";
+import { now, renameWithRetry, type CacheTrace } from "../trace.js";
 import type { ExecutionContext } from "./context.js";
 import { resolveCommandInvocation, type CommandInvocation } from "./steps/command.js";
 
@@ -154,7 +154,7 @@ export function writeCacheEntry(dir: string, entry: CacheEntry): void {
   const file = path.join(dir, `${entry.key}.json`);
   const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync(tmp, JSON.stringify(entry, null, 2));
-  renameSync(tmp, file);
+  renameWithRetry(tmp, file);
 }
 
 function isExpired(entry: CacheEntry, ttlMs: number | undefined): boolean {
