@@ -485,7 +485,7 @@ describe("--detach", () => {
     const watched = await cli(["runs", "watch", dir, runId, "--interval", "50ms"]);
     expect(watched.code, watched.stderr).toBe(0);
     const log = (await cli(["runs", "logs", dir, "latest"])).stdout;
-    expect(log).toMatch(/Received SIGTERM/);
+    expect(log).toMatch(/Received (SIGTERM|stop request)/);
     expect(log).toMatch(new RegExp(`=== \\S+ resume ${runId} pid=\\d+ ===`));
     expect(log).toMatch(/\[succeeded {2}\] done/);
   });

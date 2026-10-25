@@ -47,6 +47,7 @@
     "dev": "tsx src/cli/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run tests/unit --coverage",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
@@ -60,6 +61,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^5.0.1",
     "tsx": "^4.23.13",
     "typescript": "^5.9.0",
     "vitest": "^5.0.1"

@@ -31,6 +31,45 @@ describe("graph", () => {
     expect(exportGraph(g, "dot")).toContain('"a" -> "b"');
     expect(JSON.parse(exportGraph(g, "json")).edges).toHaveLength(4);
   });
+  it("exports map/fail/description nodes and quoted choice labels in every format", () => {
+    const { flow } = loadFlowFromObject({
+      name: "shapes",
+      version: "0.1.0",
+      steps: {
+        "fan-out": { type: "map", over: "trigger.xs", description: "per item", step: { type: "pass" } },
+        pick: { type: "choice", needs: ["fan-out"], branches: [{ when: 'trigger.k = "x"', next: "bad" }, { when: "true", next: "bad" }] },
+        bad: { type: "pass", terminal: "fail" },
+      },
+    });
+    const g = buildGraph(flow);
+    expect(g.nodes[0]).toEqual({ name: "fan-out", type: "map", description: "per item" });
+    expect([...g.choiceTargets.get("bad")!]).toEqual(["pick"]);
+    const dot = exportGraph(g, "dot");
+    expect(dot).toContain('"fan-out" [label="fan-out\\n(map)", shape=box3d];');
+    expect(dot).toContain('"bad" [label="bad\\n(pass)", style=filled, fillcolor="#f8d7da"];');
+    expect(dot).toContain('"pick" -> "bad" [style=dashed, label="trigger.k = \\"x\\""];');
+    const mermaid = exportGraph(g, "mermaid");
+    expect(mermaid).toContain('fan_out[["fan-out<br/>(map)"]]');
+    expect(mermaid).toContain("style bad fill:#f8d7da");
+    expect(mermaid).toContain('pick -. "trigger.k = #quot;x#quot;" .-> bad');
+    expect(mermaid).toContain("fan_out --> pick");
+  });
+  it("reports the cycle itself, not steps hanging off it", () => {
+    const { flow } = loadFlowFromObject({
+      name: "cyc",
+      version: "0.1.0",
+      steps: {
+        tail: { type: "pass", needs: ["b"] },
+        a: { type: "pass", needs: ["c"] },
+        b: { type: "pass", needs: ["a"] },
+        c: { type: "pass", needs: ["b"] },
+        ok: { type: "pass" },
+      },
+    });
+    const g = buildGraph(flow);
+    expect(g.order).toEqual(["ok"]);
+    expect(g.cycle).toEqual(["b", "a", "c", "b"]);
+  });
   it("detects cycles", () => {
     const r = validateRawFlow({
       name: "cyc",

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
 import { runsDir } from "../trace.js";
@@ -7,6 +7,8 @@ import { runsDir } from "../trace.js";
 /** Files a detached run keeps beside its trace.json. */
 export const runLogFile = (flowDir: string, runId: string, traceDir?: string) => path.join(runsDir(flowDir, traceDir), runId, "run.log");
 export const runPidFile = (flowDir: string, runId: string, traceDir?: string) => path.join(runsDir(flowDir, traceDir), runId, "pid");
+/** Written by `runs stop`; a detached run polls for it (Windows has no SIGTERM a process can handle). */
+export const runStopFile = (flowDir: string, runId: string, traceDir?: string) => path.join(runsDir(flowDir, traceDir), runId, "stop");
 
 /** Pid recorded by `--detach`, if any. */
 export function readRunPid(flowDir: string, runId: string, traceDir?: string): number | undefined {
@@ -68,6 +70,8 @@ export interface DetachedLaunch {
  */
 export function launchDetached(opts: { runDir: string; runId: string; args: string[] }): DetachedLaunch {
   mkdirSync(opts.runDir, { recursive: true });
+  // A resume reuses the run dir; a leftover request would stop it straight away.
+  rmSync(path.join(opts.runDir, "stop"), { force: true });
   const log = path.join(opts.runDir, "run.log");
   const logFd = openSync(log, "a");
   const outFd = openSync(path.join(opts.runDir, "stdout.json"), "w");

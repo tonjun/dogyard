@@ -390,7 +390,7 @@ A `workflows.yaml` above a flow supplies `config:` defaults; the flow's own
 | `runs <flow>` / `runs show <flow> [run_id]` | List persisted runs (status, duration, map items done/total, cached/executed counts) / print one trace (the latest run when `run_id` is omitted or `latest`). |
 | `runs watch <flow> [run_id] [--json] [--interval 500ms]` | Follow a run from another terminal (the latest by default): live status lines, the last error with its stderr tail. Exits with the run's exit code when it ends. `--json` streams NDJSON `progress` events and a final `end` event. |
 | `runs logs <flow> [run_id] [-f] [--interval 500ms]` | Print a `--detach` run's stderr log (`run.log`); `-f` follows it until the run ends. |
-| `runs stop <flow> [run_id]` | Send SIGTERM to a `--detach` run; its trace records `interrupted` and it can be resumed. |
+| `runs stop <flow> [run_id]` | Stop a `--detach` run: writes a `stop` request file the run polls for (plus SIGTERM on POSIX); its trace records `interrupted` and it can be resumed. |
 | `cache ls <flow> [--step] [--json]` / `cache clear <flow> [--step] [--expired]` | Inspect or delete cached step results. |
 | `test <flow> [-k filter] [--step <name>] [--no-steps]` | Run `tests/*.test.yaml` with mocked commands plus every `steps/<step>/tests/*.test.yaml`. `--step` runs one step's tests only; `--no-steps` skips step tests. |
 | `eval <flow> [--step <name>] [--dataset] [--mocks] [--concurrency] [--limit] [--cache] [--report] [--json]` | Score a dataset and write a report. With `--step`, evaluate that step alone using `steps/<name>/evals/`. |
@@ -566,7 +566,8 @@ outlives the terminal or SSH connection. The child's stderr (step transitions,
 map progress lines, streamed command stderr) is appended to
 `.runs/<run_id>/run.log` and its output JSON goes to `stdout.json`. Later,
 follow it with `runs logs <flow> -f` or `runs watch <flow>`, and interrupt it
-with `runs stop <flow>`. `-q` only quiets the launcher; the log always has the
+with `runs stop <flow>` (which works on Windows too, via a `.runs/<run_id>/stop`
+request file the run polls for). `-q` only quiets the launcher; the log always has the
 full progress. `runs logs -f` and `runs watch` exit with an error if the
 process dies without finishing its trace.
 

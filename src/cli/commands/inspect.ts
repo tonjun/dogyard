@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
 import { formatShortDuration, parseDuration, sleep } from "../../duration.js";
@@ -6,7 +6,7 @@ import { buildGraph, exportGraph, type GraphFormat } from "../../graph.js";
 import { FLOW_FILENAMES, LoadError, loadFlow } from "../../loader.js";
 import { computeProgress, historicalItemMedians, runSummary, type RunProgress } from "../../progress.js";
 import { cacheStats, latestRun, listRuns, readTrace, recentRuns, runsDir, traceFile, type RunTrace } from "../../trace.js";
-import { isAlive, readRunPid, runLogFile, runProcessAlive } from "../background.js";
+import { isAlive, readRunPid, runLogFile, runProcessAlive, runStopFile } from "../background.js";
 import { ProgressDisplay, stepTransitionLogger } from "../progress-display.js";
 import { formatDiagnostics, validateFlow } from "../../validate.js";
 import { fail, loadValidFlow, log, printJson } from "../util.js";
@@ -175,7 +175,7 @@ export function registerInspect(program: Command): void {
     });
   runs
     .command("stop <flow> [run_id]")
-    .description("Interrupt a --detach run (SIGTERM); its trace records `interrupted` and it can be resumed")
+    .description("Interrupt a --detach run (stop request, plus SIGTERM on POSIX); its trace records `interrupted` and it can be resumed")
     .option("--trace-dir <dir>", "directory holding run traces")
     .action((flowPath: string, runId: string | undefined, flags: { traceDir?: string }) => {
       const loaded = loadValidFlow(flowPath);
@@ -186,6 +186,9 @@ export function registerInspect(program: Command): void {
       const status = existsSync(file) ? readTrace(file).status : undefined;
       if (status && status !== "running") fail(`Run ${id} is not running (${status})`);
       if (!isAlive(pid)) fail(`Run ${id}'s process (pid ${pid}) is not running`);
+      writeFileSync(runStopFile(loaded.dir, id, flags.traceDir), `${new Date().toISOString()}\n`);
+      // On Windows process.kill() terminates outright, skipping the checkpoint; the run polls for the stop file instead.
+      if (process.platform === "win32") return log(`Requested stop of run ${id} (pid ${pid})`);
       process.kill(pid, "SIGTERM");
       log(`Sent SIGTERM to run ${id} (pid ${pid})`);
     });

@@ -17,6 +17,7 @@ npm run build         # tsc -> dist/, produces the `dogyard` bin
 npm run dev <args>     # run the CLI from source: tsx src/cli/index.ts <args>
 npm test               # vitest run (unit + e2e)
 npm run test:watch     # vitest watch mode
+npm run test:coverage  # unit tests with v8 coverage; fails below 85% branches
 npm run typecheck      # tsc --noEmit
 ```
 

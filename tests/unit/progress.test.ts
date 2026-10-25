@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { ProgressDisplay } from "../../src/cli/progress-display.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ProgressDisplay, stepTransitionLogger } from "../../src/cli/progress-display.js";
 import { formatShortDuration } from "../../src/duration.js";
 import { computeProgress, formatStepLine, historicalItemMedians, runSummary } from "../../src/progress.js";
 import type { ItemTrace, RunTrace, StepTrace } from "../../src/trace.js";
@@ -169,5 +169,112 @@ describe("ProgressDisplay (TTY)", () => {
     expect(out.slice(1)).toEqual(["\r\x1b[J", "abcdef\n", "analyze  0/2  running 0s"]);
     display.stop();
     expect(out.at(-1)).toBe("\r\x1b[J");
+  });
+});
+
+describe("ProgressDisplay (TTY, timers)", () => {
+  afterEach(() => vi.useRealTimers());
+  const tty = (columns?: number) => {
+    const out: string[] = [];
+    return { out, stream: { write: (s: string) => out.push(s), isTTY: true, ...(columns ? { columns } : {}) } };
+  };
+
+  it("draws a multi-line block with a footer and clears it with a cursor-up", () => {
+    vi.useFakeTimers();
+    const { out, stream } = tty(40);
+    const display = new ProgressDisplay({ stream, now: () => T0, history: { analyze: 1000 }, footer: (p) => [`steps: ${p.steps.length}`] });
+    display.update(trace([mapStep([pending(0), pending(1)]), { name: "other", type: "command", status: "running", attempts: [], started_at: at(0) }]));
+    display.update(trace([mapStep([pending(0), pending(1)])])); // throttled: one redraw
+    vi.advanceTimersByTime(100);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe("analyze  0/2  ETA ~2s\nsteps: 1");
+    display.log("line");
+    expect(out.slice(1, 3)).toEqual(["\r\x1b[1A\x1b[J", "line\n"]);
+    display.stop();
+  });
+
+  it("truncates lines wider than the terminal", () => {
+    vi.useFakeTimers();
+    const { out, stream } = tty(10);
+    const display = new ProgressDisplay({ stream, now: () => T0 });
+    display.update(trace([mapStep([pending(0)])]));
+    vi.advanceTimersByTime(100);
+    expect(out[0]).toBe("analyze …");
+    display.stop();
+  });
+
+  it("prints a finished map above the block, redraws on the 1s tick, and skips a redraw scheduled before stop", () => {
+    vi.useFakeTimers();
+    const { out, stream } = tty();
+    const display = new ProgressDisplay({ stream, now: () => T0 });
+    const t = trace([mapStep([pending(0)]), mapStep([pending(0)], { name: "second" })]);
+    display.update(t);
+    vi.advanceTimersByTime(1000);
+    const drawn = out.length;
+    expect(out.at(-1)).toBe("analyze  0/1  running 0s\nsecond   0/1  running 0s");
+    t.steps[0]!.status = "failed";
+    t.steps[0]!.ended_at = at(400);
+    display.update(t);
+    expect(out.slice(drawn)).toEqual(["\r\x1b[1A\x1b[J", "analyze  0/1  failed in 0s\n", "second  0/1  running 0s"]);
+    display.write("tail without newline");
+    display.stop();
+    expect(out.slice(-2)).toEqual(["\r\x1b[J", "tail without newline\n"]);
+    const count = out.length;
+    display.update(t);
+    display.stop();
+    vi.advanceTimersByTime(2000);
+    expect(out).toHaveLength(count);
+  });
+
+  it("draws nothing when no step is running, and ignores ticks before the first trace", () => {
+    vi.useFakeTimers();
+    const { out, stream } = tty();
+    const display = new ProgressDisplay({ stream, now: () => T0 });
+    vi.advanceTimersByTime(1000);
+    display.update(trace([mapStep([pending(0)], { status: "pending", started_at: undefined })]));
+    vi.advanceTimersByTime(1000);
+    expect(out).toEqual([]);
+    display.stop();
+  });
+
+  it("prints periodic non-TTY lines with a footer from the tick", () => {
+    vi.useFakeTimers();
+    const out: string[] = [];
+    let now = T0;
+    const display = new ProgressDisplay({ stream: { write: (s: string) => out.push(s) }, tty: false, now: () => now, footer: () => ["-- footer"] });
+    display.update(trace([mapStep([pending(0)]), { name: "cmd", type: "command", status: "running", attempts: [], started_at: at(0) }]));
+    expect(out).toEqual(["analyze  0/1  running 0s\n", "-- footer\n"]);
+    now += 30_000;
+    vi.advanceTimersByTime(1000);
+    expect(out.slice(2)).toEqual(["analyze  0/1  running 30s\n", "-- footer\n"]);
+    display.stop();
+  });
+});
+
+describe("stepTransitionLogger", () => {
+  it("logs each status change once, with skip reasons, errors, routes and cache hits", () => {
+    const lines: string[] = [];
+    const logger = stepTransitionLogger((m) => lines.push(m));
+    const step = (name: string, status: StepTrace["status"], extra: Partial<StepTrace> = {}): StepTrace => ({ name, type: "command", status, attempts: [], ...extra });
+    const err = { type: "timeout", message: "slow" } as StepTrace["error"];
+    logger(trace([step("a", "pending"), step("b", "running")]));
+    logger(trace([step("a", "pending"), step("b", "running")]));
+    logger(
+      trace([
+        step("a", "skipped", { skip_reason: "not selected" }),
+        step("b", "failed", { error: err }),
+        step("c", "caught", { error: err }),
+        step("d", "succeeded", { selected: "x" }),
+        step("e", "succeeded", { cache: { hit: true } as StepTrace["cache"] }),
+      ]),
+    );
+    expect(lines).toEqual([
+      "[running    ] b",
+      "[skipped    ] a (not selected)",
+      "[failed     ] b (timeout: slow)",
+      "[caught     ] c",
+      "[succeeded  ] d -> x",
+      "[succeeded  ] e (cached)",
+    ]);
   });
 });

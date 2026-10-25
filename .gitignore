@@ -5,3 +5,4 @@ evals/reports/
 *.log
 .DS_Store
 .dogyard/
+coverage/
