@@ -636,6 +636,13 @@ nothing to build, and the page reads the same `flow.yaml`, `trace.json` and
   toolbar toggles, their `×`, or `[` / `]` / `\`. `g` (⛶) hides all three to
   focus on the graph and brings them back. An action that needs a hidden pane
   (Details, Logs, …) reopens it, and the layout is remembered per browser.
+  In a narrow window (for example side by side with a browser) the header
+  stays on one icon-only row, and the runs list and inspector open as
+  overlays, so the graph and logs keep the space.
+- **Compact** (`c`, ▭): one-line nodes (status glyph, name, live duration or
+  items done) packed tightly, a slimmer header and logs bar, and a zoom that
+  stays readable while following the running steps. It is on by default in
+  windows narrower than 900px, and the choice is remembered per browser.
 - **Controls**: ▶ Start (trigger JSON dialog, checked against `trigger_schema`),
   ⏸ Pause, ⏵ Resume (continues a paused run, or `resume`s an interrupted or
   failed one), ■ Stop.
